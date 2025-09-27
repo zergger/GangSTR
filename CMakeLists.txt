@@ -1,17 +1,11 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.10)
+project(GangSTR C CXX)
 
 include(ExternalProject)
 
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-#add_compile_options(-Werror)
+set(CMAKE_CXX_STANDARD 17)
 
-enable_testing()
-
-list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
-
-
-# set the project name
-project(GangSTR VERSION 2.5.0)
+# Give option to build tests
 configure_file(GangSTRConfig.h.in GangSTRConfig.h)
 
 # specify the C++ standard

@@ -79,6 +79,69 @@ bool Genotyper::SetGGL(Locus& locus, const std::string& samp) {
   return true;
 }
 
+bool Genotyper::LearnStutterModels(BamCramMultiReader* bamreader, std::vector<Locus*>& loci) {
+    if (options->verbose) {
+        PrintMessageDieOnError("Learning locus-specific stutter models...", M_PROGRESS, options->quiet);
+    }
+
+    for (auto const& locus : loci) {
+        // We need a temporary map of likelihood maximizers just for extracting reads for this locus.
+        std::map<std::string, LikelihoodMaximizer*> temp_lms;
+        std::set<std::string> rg_samples = sample_info->GetSamples();
+        for (const auto& samp : rg_samples) {
+            SampleProfile sp;
+            if (sample_info->GetSampleProfile(samp, &sp)) {
+                temp_lms[samp] = new LikelihoodMaximizer(*options, sp, sample_info->GetReadLength(), sample_info->GetSampleSex(samp));
+            } else {
+                PrintMessageDieOnError("Could not find sample profile for " + samp, M_ERROR, false);
+                return false;
+            }
+        }
+
+        // Extract reads for the current locus
+        if (!read_extractor->ExtractReads(bamreader, *locus, options->regionsize, options->min_match, temp_lms)) {
+            PrintMessageDieOnError("Failed to extract reads for stutter learning at locus " + locus->chrom + ":" + std::to_string(locus->start), M_WARNING, options->quiet);
+            // Cleanup
+            for(auto const& [key, val] : temp_lms) { delete val; }
+            continue; // Skip to next locus
+        }
+
+        // Aggregate all enclosing read alleles from all samples
+        std::vector<int> all_enclosing_alleles;
+        for (const auto& samp : rg_samples) {
+            temp_lms[samp]->enclosing_class_.ExtractEnclosingAlleles(&all_enclosing_alleles);
+        }
+
+        // Cleanup the temporary LMs
+        for(auto const& [key, val] : temp_lms) { delete val; }
+
+        // Check if we have enough data to learn a model
+        if (all_enclosing_alleles.size() < 20) { // Heuristic threshold
+            if (options->verbose) {
+                PrintMessageDieOnError("\tSkipping stutter model learning for locus " + locus->chrom + ":" + std::to_string(locus->start) + " (not enough enclosing reads)", M_PROGRESS, options->quiet);
+            }
+            continue;
+        }
+
+        // Learn the model
+        HipEMLearner em_learner(all_enclosing_alleles, locus->motif.length());
+        bool success = em_learner.train(20, 0.01);
+
+        std::string locus_id = locus->chrom + ":" + std::to_string(locus->start);
+        if (success) {
+            locus_stutter_models[locus_id] = em_learner.get_stutter_model()->copy();
+            if (options->verbose) {
+                PrintMessageDieOnError("\tSuccessfully learned stutter model for locus " + locus_id, M_PROGRESS, options->quiet);
+            }
+        } else {
+            PrintMessageDieOnError("\tFailed to learn stutter model for locus " + locus_id, M_WARNING, options->quiet);
+            locus_stutter_models[locus_id] = nullptr;
+        }
+    }
+
+    return true;
+}
+
 bool Genotyper::ProcessLocus(BamCramMultiReader* bamreader, Locus* locus) {
   int32_t read_len = sample_info->GetReadLength();
 
@@ -116,6 +179,12 @@ bool Genotyper::ProcessLocus(BamCramMultiReader* bamreader, Locus* locus) {
     return false;
   }
 
+  // Get the learned stutter model for this locus
+  std::string locus_id = locus->chrom + ":" + std::to_string(locus->start);
+  const HipStutterModel* stutter_model = nullptr;
+  if (locus_stutter_models.count(locus_id)) {
+      stutter_model = locus_stutter_models.at(locus_id);
+  }
 
   std::set<std::string> rg_samples = sample_info->GetSamples();
   // First set grid size
@@ -126,6 +195,9 @@ bool Genotyper::ProcessLocus(BamCramMultiReader* bamreader, Locus* locus) {
   for (std::set<std::string>::iterator it = rg_samples.begin();
        it != rg_samples.end(); it++) {
     const std::string samp = *it;
+    // Set the stutter model for the likelihood maximizer
+    sample_likelihood_maximizers[samp]->SetStutterModel(stutter_model);
+
     if (gcbin != -1) {
       sample_likelihood_maximizers[samp]->SetLocusParams(str_info->GetSTRInfo(locus->chrom, locus->start),
 							 sample_info->GetGCCoverage(samp, gcbin),

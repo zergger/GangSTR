@@ -436,28 +436,40 @@ int main(int argc, char* argv[]) {
 		      sample_info, options.include_ggl);
   Genotyper genotyper(refgenome, options, sample_info, str_info);
 
-  stringstream ss;
+  // First pass: Read all loci from the file
+  std::vector<Locus*> all_loci;
   while (region_reader.GetNextRegion(&locus)) {
-    if (!options.chrom.empty() && locus.chrom != options.chrom) {continue;}
-    if (!options.period.empty() &&
-	std::find(options.period.begin(), options.period.end(), locus.period) == options.period.end()) {
-      continue;
-    }
+      if (!options.chrom.empty() && locus.chrom != options.chrom) {continue;}
+      if (!options.period.empty() &&
+    std::find(options.period.begin(), options.period.end(), locus.period) == options.period.end()) {
+        continue;
+      }
+      Locus* new_locus = new Locus();
+      *new_locus = locus;
+      all_loci.push_back(new_locus);
+  }
+
+  // Second pass: Learn stutter models
+  genotyper.LearnStutterModels(&bamreader, all_loci);
+
+  // Third pass: Genotype each locus
+  stringstream ss;
+  for (auto const& current_locus : all_loci) {
     ss.str("");
     ss.clear();
-    ss << "Processing " << locus.chrom << ":" << locus.start;
+    ss << "Processing " << current_locus->chrom << ":" << current_locus->start;
     PrintMessageDieOnError(ss.str(), M_PROGRESS, options.quiet);
 
     if (options.use_off){
-      locus.offtarget_share = 1.0;
+      current_locus->offtarget_share = 1.0;
     }
     else{
-      locus.offtarget_share = 0.0;
+      current_locus->offtarget_share = 0.0;
     }
 
-    if (genotyper.ProcessLocus(&bamreader, &locus)) {
-      vcfwriter.WriteRecord(locus);
+    if (genotyper.ProcessLocus(&bamreader, current_locus)) {
+      vcfwriter.WriteRecord(*current_locus);
     }
-    locus.Reset();
+    delete current_locus; // free memory
   };
 }

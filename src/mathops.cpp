@@ -79,6 +79,38 @@ double fast_log_sum_exp(double log_v1, double log_v2){
   }
 }
 
-double normal_cdf(double mean, double stdev, double x){
-	
+double log_sum_exp(const std::vector<double>& log_vals) {
+    if (log_vals.empty()) {
+        return -1.0/0.0; // Return negative infinity
+    }
+    double max_val = log_vals[0];
+    for (size_t i = 1; i < log_vals.size(); ++i) {
+        if (log_vals[i] > max_val) {
+            max_val = log_vals[i];
+        }
+    }
+    double sum = 0.0;
+    for (double val : log_vals) {
+        sum += exp(val - max_val);
+    }
+    return max_val + log(sum);
 }
+
+double log_sum_exp(const double* start, const double* end) {
+    if (start == end) {
+        return -1.0/0.0; // Return negative infinity
+    }
+    double max_val = *start;
+    for (const double* p = start + 1; p != end; ++p) {
+        if (*p > max_val) {
+            max_val = *p;
+        }
+    }
+    double sum = 0.0;
+    for (const double* p = start; p != end; ++p) {
+        sum += exp(*p - max_val);
+    }
+    return max_val + log(sum);
+}
+
+

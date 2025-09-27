@@ -32,16 +32,6 @@ along with GangSTR.  If not, see <http://www.gnu.org/licenses/>.
 #include <gsl/gsl_randist.h>
 #include <gsl/gsl_cdf.h>
 
-/*
-
-Parent ReadClass
-Individual read classes (FRR, enclosing, spanning) inherit
-from this and implement their own read and class probability functions
-
-A read class consists of:
-- data (a vector of relevant values, e.g. copy number, insert size)
-- a method to calculate the class log likelihood for a diploid genotype
- */
 class ReadClass {
   friend class ReadClassTest;
  public:

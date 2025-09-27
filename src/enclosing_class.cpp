@@ -55,6 +55,7 @@ bool EnclosingClass::GetLogClassProb(const int32_t& allele,
 		return false;
 }
 
+// Original GetLogReadProb for backward compatibility if needed (e.g. base class calls)
 bool EnclosingClass::GetLogReadProb(const int32_t& allele,
 				    const int32_t& data,
 				    const int32_t& read_len,
@@ -79,6 +80,52 @@ bool EnclosingClass::GetLogReadProb(const int32_t& allele,
 	}
 	else
 		return false;
+}
+
+// Overloaded GetLogReadProb that uses the new stutter model
+bool EnclosingClass::GetLogReadProb(const int32_t& allele,
+				    const int32_t& data,
+				    const int32_t& motif_len,
+				    const HipStutterModel* stutter_model,
+				    double* log_allele_prob) {
+	if (stutter_model == nullptr) {
+		// Fallback to old model if no new model is provided
+		return GetLogReadProb(allele, data, 0, motif_len, 0, log_allele_prob);
+	}
+	*log_allele_prob = stutter_model->log_stutter_pmf(allele * motif_len, data * motif_len);
+	return true;
+}
+
+// Overloaded GetClassLogLikelihood that uses the new stutter model
+bool EnclosingClass::GetClassLogLikelihood(const int32_t& allele1,
+				      const int32_t& allele2,
+				      const int32_t& read_len, const int32_t& motif_len,
+				      const int32_t& ref_count, const int32_t& ploidy,
+				      const HipStutterModel* stutter_model,
+				      double* class_ll) {
+  *class_ll = 0;
+  double samp_log_likelihood, a1_ll, a2_ll;
+  for (std::vector<int32_t>::iterator data_it = read_class_data_.begin();
+       data_it != read_class_data_.end();
+       data_it++) {
+    double log_class_prob1, log_read_prob1;
+    if (!GetLogClassProb(allele1, read_len, motif_len, &log_class_prob1)) return false;
+    if (!GetLogReadProb(allele1, *data_it, motif_len, stutter_model, &log_read_prob1)) return false;
+    a1_ll = log_class_prob1 + log_read_prob1;
+
+    double log_class_prob2, log_read_prob2;
+    if (!GetLogClassProb(allele2, read_len, motif_len, &log_class_prob2)) return false;
+    if (!GetLogReadProb(allele2, *data_it, motif_len, stutter_model, &log_read_prob2)) return false;
+    a2_ll = log_class_prob2 + log_read_prob2;
+
+    if (ploidy == 2){
+      *class_ll += fast_log_sum_exp(log(allele1_weight_)+a1_ll, log(allele2_weight_)+a2_ll);
+    }
+    else if (ploidy == 1){
+      *class_ll += log(allele1_weight_) + a1_ll;
+    }
+  }
+  return true;
 }
 
 bool EnclosingClass::GetGridBoundaries(int32_t* min_allele, int32_t* max_allele) {

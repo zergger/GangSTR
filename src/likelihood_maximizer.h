@@ -30,6 +30,7 @@ along with GangSTR.  If not, see <http://www.gnu.org/licenses/>.
 #include "src/read_pair.h"
 #include "src/locus.h"
 #include "src/sample_info.h"
+#include "src/hipstr_models/hip_stutter_model.h"
 #include "gsl/gsl_vector.h"
 #include "gsl/gsl_rng.h"
 #include "gsl/gsl_randist.h"
@@ -122,6 +123,8 @@ class LikelihoodMaximizer {
 		      const int32_t& _read_len, const int32_t _motif_len,
 		      const int32_t& _ref_count, const std::string chrom);
 
+  void SetStutterModel(const HipStutterModel* model);
+
   // Print read pool
   void PrintReadPool();
 
@@ -133,6 +136,7 @@ class LikelihoodMaximizer {
   const Options* options;
   const std::string sex; // {"M", "F", "U"}
  private:
+  const HipStutterModel* stutter_model_;
   double obj_cov; // TODO: This is a placeholder, until we figure out how to pass coverage through sample info
   EnclosingClass enclosing_class_;
   FRRClass frr_class_;

@@ -33,8 +33,11 @@ along with GangSTR.  If not, see <http://www.gnu.org/licenses/>.
 #include "src/sample_info.h"
 #include "src/str_info.h"
 
+#include "src/hipstr_models/hip_em_learner.h"
+#include "src/hipstr_models/hip_stutter_model.h"
+
 class Genotyper {
-  friend class GenotyperTest;
+ friend class GenotyperTest;
  public:
   Genotyper(RefGenome& _refgenome,
 	    Options& _options,
@@ -42,6 +45,7 @@ class Genotyper {
 	    STRInfo& _str_info);
   virtual ~Genotyper();
 
+  bool LearnStutterModels(BamCramMultiReader* bamreader, std::vector<Locus*>& loci);
   bool ProcessLocus(BamCramMultiReader* bamreader, Locus* locus);
   bool SetGGL(Locus& locus, const std::string& samp);
   void Debug(BamCramMultiReader* bamreader); // For testing member classes. can remove later
@@ -53,9 +57,9 @@ class Genotyper {
   RefGenome* refgenome;
   Options* options;
   SampleInfo* sample_info;
-  std::map<std::string,LikelihoodMaximizer*> sample_likelihood_maximizers;
+  std::map<std::string, LikelihoodMaximizer*> sample_likelihood_maximizers;
+  std::map<std::string, HipStutterModel*> locus_stutter_models;
   ReadExtractor* read_extractor;
   STRInfo* str_info;
 };
-
 #endif  // SRC_GENOTYPER_H__

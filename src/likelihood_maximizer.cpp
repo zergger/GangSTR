@@ -30,10 +30,15 @@ along with GangSTR.  If not, see <http://www.gnu.org/licenses/>.
 using namespace std;
 
 
+void LikelihoodMaximizer::SetStutterModel(const HipStutterModel* model) {
+    stutter_model_ = model;
+}
+
 LikelihoodMaximizer::LikelihoodMaximizer(const Options& _options, const SampleProfile& sp,
 					 const int32_t& read_len, const std::string _sex) : sex(_sex) {
 
   options = &_options; // TODO remove options
+  stutter_model_ = nullptr;
   local_ploidy = 2;
   enclosing_class_.SetGlobalParams(sp, options->flanklen, options->read_prob_mode, options->hist_mode);
   frr_class_.SetGlobalParams(sp, options->flanklen, options->read_prob_mode, options->hist_mode);
@@ -404,12 +409,12 @@ bool LikelihoodMaximizer::GetGenotypeNegLogLikelihood(const int32_t& allele1,
     					  local_ploidy, &span_ll);
     enclosing_class_.GetClassLogLikelihood(allele1, allele2, 
 					     read_len, motif_len, ref_count, 
-					   local_ploidy, &encl_ll);
+					   local_ploidy, stutter_model_, &encl_ll);
 
     // flanking class overloads GetClassLogLikelihood function
     flanking_class_.FlankingClass::GetClassLogLikelihood(allele1, allele2, 
     							 read_len, motif_len, ref_count, 
-    							 local_ploidy, &flank_ll);
+    							 local_ploidy, stutter_model_, &flank_ll);
     // TODO Substituting these lines changes optimization result. Find out why?!
     //if ((options->coverage > 0) && (frr_class_.GetDataSize() > 0)){
     
@@ -442,11 +447,11 @@ bool LikelihoodMaximizer::GetGenotypeNegLogLikelihood(const int32_t& allele1,
 						    local_ploidy, &span_ll);
     resampled_enclosing_class_.GetClassLogLikelihood(allele1, allele2, 
 						     read_len, motif_len, ref_count, 
-						     local_ploidy, &encl_ll);
+						     local_ploidy, stutter_model_, &encl_ll);
     // flanking class overloads GetClassLogLikelihood function
     resampled_flanking_class_.FlankingClass::GetClassLogLikelihood(allele1, allele2, 
 								   read_len, motif_len, ref_count, 
-								   local_ploidy, &flank_ll); 
+								   local_ploidy, stutter_model_, &flank_ll); 
     
     if (use_cov && obj_cov > 0 && frr_count > 0){
       resampled_frr_class_.GetCountLogLikelihood(allele1, 
