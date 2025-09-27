@@ -35,6 +35,13 @@ class FlankingClass: public ReadClass {
  public:
 	bool GetAlleleLogLikelihood(const int32_t& allele,
 				   const int32_t& data,
+				   const int32_t& read_len,
+				   const int32_t& motif_len,
+				   const int32_t& ref_count,
+				   double* allele_ll);
+
+	bool GetAlleleLogLikelihood(const int32_t& allele,
+				   const int32_t& data,
 				   const int32_t& motif_len,
                    const HipStutterModel* stutter_model,
 				   double* allele_ll);
