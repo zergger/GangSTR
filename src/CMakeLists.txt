@@ -62,6 +62,21 @@ if(BUILD_TESTING)
   target_include_directories(gangstr_integration_smoke PRIVATE "${PROJECT_BINARY_DIR}")
   add_test(NAME gangstr_integration_smoke COMMAND gangstr_integration_smoke)
 
+  add_executable(hip_em_learner_unit
+      tests/hip_em_learner_unit.cpp
+  )
+  target_link_directories(hip_em_learner_unit PRIVATE
+      ${CMAKE_BINARY_DIR}/src
+      ${CMAKE_BINARY_DIR}/thirdparty/zlib/lib
+      ${CMAKE_BINARY_DIR}/thirdparty/gsl/lib
+      ${CMAKE_BINARY_DIR}/thirdparty/nlopt/lib64
+      ${CMAKE_BINARY_DIR}/thirdparty/nlopt/lib
+      ${CMAKE_BINARY_DIR}/thirdparty/htslib/lib
+  )
+  target_link_libraries(hip_em_learner_unit PRIVATE gstr Threads::Threads hts z m nlopt gsl)
+  target_include_directories(hip_em_learner_unit PRIVATE "${PROJECT_BINARY_DIR}")
+  add_test(NAME hip_em_learner_unit COMMAND hip_em_learner_unit)
+
   if(CPPUNIT_FOUND OR (CPPUNIT_INCLUDE_DIR AND CPPUNIT_LIBRARY))
     if(CMAKE_CXX_COMPILER MATCHES "conda")
       message(WARNING "Skipping legacy CPPUNIT suite under the Conda toolchain; build with CC=/usr/bin/gcc CXX=/usr/bin/g++ to run gangstr_cppunit.")

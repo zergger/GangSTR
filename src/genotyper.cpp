@@ -19,6 +19,7 @@ along with GangSTR.  If not, see <http://www.gnu.org/licenses/>.
 */
 
 #include <iostream>
+#include <sstream>
 
 #include "src/genotyper.h"
 #include "src/mathops.h"
@@ -61,6 +62,16 @@ bool Genotyper::SetFlanks(Locus* locus) {
     return false;
   }
   return true;
+}
+
+std::string Genotyper::GetLocusStutterKey(const Locus& locus) const {
+  std::stringstream key;
+  key << locus.chrom
+      << ":" << locus.start
+      << ":" << locus.end
+      << ":" << locus.period
+      << ":" << locus.motif;
+  return key.str();
 }
 
 bool Genotyper::SetGGL(Locus& locus, const std::string& samp) {
@@ -114,17 +125,21 @@ bool Genotyper::LearnStutterModels(BamCramMultiReader* bamreader, std::vector<Lo
             continue; // Skip to next locus
         }
 
-        // Aggregate all enclosing read alleles from all samples
-        std::vector<int> all_enclosing_alleles;
+        // Aggregate enclosing read alleles per sample for sample-aware EM training.
+        std::vector< std::vector<int> > per_sample_enclosing_alleles;
+        size_t total_enclosing_reads = 0;
         for (const auto& samp : rg_samples) {
-            temp_lms[samp]->enclosing_class_.ExtractEnclosingAlleles(&all_enclosing_alleles);
+            std::vector<int> sample_alleles;
+            temp_lms[samp]->enclosing_class_.ExtractAllEnclosingAlleles(&sample_alleles);
+            total_enclosing_reads += sample_alleles.size();
+            per_sample_enclosing_alleles.push_back(sample_alleles);
         }
 
         // Cleanup the temporary LMs
         for(auto const& [key, val] : temp_lms) { delete val; }
 
         // Check if we have enough data to learn a model
-        if (all_enclosing_alleles.size() < 20) { // Heuristic threshold
+        if (total_enclosing_reads < 20) { // Heuristic threshold
             if (options->verbose) {
                 PrintMessageDieOnError("\tSkipping stutter model learning for locus " + locus->chrom + ":" + std::to_string(locus->start) + " (not enough enclosing reads)", M_PROGRESS, options->quiet);
             }
@@ -132,10 +147,10 @@ bool Genotyper::LearnStutterModels(BamCramMultiReader* bamreader, std::vector<Lo
         }
 
         // Learn the model
-        HipEMLearner em_learner(all_enclosing_alleles, locus->motif.length());
+        HipEMLearner em_learner(per_sample_enclosing_alleles, locus->motif.length());
         bool success = em_learner.train(20, 0.01);
 
-        std::string locus_id = locus->chrom + ":" + std::to_string(locus->start);
+        std::string locus_id = GetLocusStutterKey(*locus);
         std::map<std::string, HipStutterModel*>::iterator existing_model = locus_stutter_models.find(locus_id);
         if (existing_model != locus_stutter_models.end()) {
             delete existing_model->second;
@@ -193,7 +208,7 @@ bool Genotyper::ProcessLocus(BamCramMultiReader* bamreader, Locus* locus) {
   }
 
   // Get the learned stutter model for this locus
-  std::string locus_id = locus->chrom + ":" + std::to_string(locus->start);
+  std::string locus_id = GetLocusStutterKey(*locus);
   const HipStutterModel* stutter_model = nullptr;
   if (locus_stutter_models.count(locus_id)) {
       stutter_model = locus_stutter_models.at(locus_id);

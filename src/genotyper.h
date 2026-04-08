@@ -53,6 +53,7 @@ class Genotyper {
  protected:
   // Set locus flanking regions
   bool SetFlanks(Locus* locus);
+  std::string GetLocusStutterKey(const Locus& locus) const;
 
   RefGenome* refgenome;
   Options* options;

@@ -45,8 +45,10 @@ class EnclosingClass: public ReadClass {
 		      const HipStutterModel* stutter_model,
 		      double* log_allele_prob);
   bool GetGridBoundaries(int32_t* min_allele, int32_t* max_allele);
-  // Function to extract all enclosing alleles present
+  // Extract repeated enclosing alleles for GangSTR grid inference.
   bool ExtractEnclosingAlleles(std::vector<int> *alleles);
+  // Extract all enclosing alleles without applying the repeated-read filter.
+  bool ExtractAllEnclosingAlleles(std::vector<int> *alleles) const;
 private:
     bool GetLogReadProb(const int32_t& allele, const int32_t& data,
 		      const int32_t& read_len,
