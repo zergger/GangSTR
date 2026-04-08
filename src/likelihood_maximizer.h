@@ -137,7 +137,7 @@ class LikelihoodMaximizer {
   const std::string sex; // {"M", "F", "U"}
  private:
   const HipStutterModel* stutter_model_;
-  double obj_cov; // TODO: This is a placeholder, until we figure out how to pass coverage through sample info
+  double obj_cov; // Coverage passed via SampleProfile; kept here for likelihood calculations.
   EnclosingClass enclosing_class_;
   FRRClass frr_class_;
   SpanningClass spanning_class_;
@@ -189,14 +189,14 @@ struct nlopt_data{
 bool nlopt_1D_optimize(const int32_t& read_len, const int32_t& motif_len,
 		       const int32_t& ref_count, const int32_t& lower_bound,
 		       const int32_t& upper_bound, const bool& resampled, 
-		       const int& seed, LikelihoodMaximizer* lm_ptr,
+		       const int& seed, const double& xtol_rel, LikelihoodMaximizer* lm_ptr,
 		       const int32_t& fix_allele, int32_t* allele1,
 		       int32_t* ret_result, double* minf_ret);
 // 2D gradient optimizer using NLOPT
 bool nlopt_2D_optimize(const int32_t& read_len, const int32_t& motif_len,
 		       const int32_t& ref_count, const int32_t& lower_bound,
 		       const int32_t& upper_bound, const bool& resampled, 
-		       const int& seed, LikelihoodMaximizer* lm_ptr,
+		       const int& seed, const double& xtol_rel, LikelihoodMaximizer* lm_ptr,
                int32_t* allele1, int32_t* allele2, int32_t* ret_result, double* minf_ret);
 // Helper function for NLOPT gradient optimizer
 double nloptNegLikelihood(unsigned n, const double *x, double *grad, void *data);

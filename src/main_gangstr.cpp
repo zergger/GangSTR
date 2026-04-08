@@ -78,12 +78,18 @@ void show_help() {
 	   << "\t" << "--skipofftarget               " << "\t" << "Skip off target regions included in the BED file." << "\n"
 	   << "\t" << "--read-prob-mode              " << "\t" << "Use only read probability (ignore class probability)" << "\n"
 	   << "\t" << "--numbstrap   <int>           " << "\t" << "Number of bootstrap samples. Default: " << options.num_boot_samp << "\n"
+	   << "\t" << "--bootstrap-alpha <float>     " << "\t" << "Bootstrap CI two-sided tail probability. Default: " << options.bootstrap_alpha << "\n"
 	   << "\t" << "--grid-threshold <int>        " << "\t" << "Use optimization rather than grid search to find MLE if more than this many possible alleles. Default: " << options.grid_threshold << "\n"
 	   << "\t" << "--rescue-count <int>          " << "\t" << "Number of regions that GangSTR attempts to rescue mates from (excluding off-target regions) Default: " << options.rescue_count << "\n"
+	   << "\t" << "--rescue-match-perc <float>   " << "\t" << "Minimum match fraction to accept rescued reads. Default: " << options.rescue_match_perc << "\n"
 	   << "\t" << "--max-proc-read <int>         " << "\t" << "Maximum number of processed reads per sample before a region is skipped. Default: " << options.max_processed_reads_per_sample << "\n"
+	   << "\t" << "--opt-xtol-rel-2d <float>     " << "\t" << "Relative tolerance for 2D optimizer. Default: " << options.nlopt_xtol_rel_2d << "\n"
+	   << "\t" << "--opt-xtol-rel-1d <float>     " << "\t" << "Relative tolerance for 1D optimizer. Default: " << options.nlopt_xtol_rel_1d << "\n"
 	   << "\n Parameters for local realignment:\n"
 	   << "\t" << "--minscore    <int>           " << "\t" << "Minimum alignment score (out of 100). Default: " << options.min_score << "\n"
 	   << "\t" << "--minmatch    <int>           " << "\t" << "Minimum number of matching basepairs on each end of enclosing reads. Default: " << options.min_match<< "\n"
+	   << "\t" << "--realign-match-perc <float>  " << "\t" << "Minimum match fraction for realignment classification. Default: " << options.realign_match_perc << "\n"
+	   << "\t" << "--max-spanning-data <int>     " << "\t" << "Maximum spanning data value (0 disables). Default: " << options.max_spanning_data_value << "\n"
 	   << "\n Default stutter model parameters:\n"
 	   << "\t" << "--stutterup   <float>         " << "\t" << "Stutter insertion probability. Default: " << options.stutter_up << "\n"
 	   << "\t" << "--stutterdown <float>         " << "\t" << "Stutter deletion probability. Default: " << options.stutter_down << "\n"
@@ -142,9 +148,15 @@ void parse_commandline_options(int argc, char* argv[], Options* options) {
     OPT_STUTDW,
     OPT_STUTPR,
     OPT_NBSTRAP,
+    OPT_BOOTSTRAP_ALPHA,
     OPT_RDPROB,
     OPT_OUTBS,
     OPT_OUTREADINFO,
+    OPT_OPT_XTOL2D,
+    OPT_OPT_XTOL1D,
+    OPT_RESCUE_MATCH_PERC,
+    OPT_REALIGN_MATCH_PERC,
+    OPT_MAX_SPANNING_DATA,
     OPT_SEED,
     OPT_VERBOSE,
     OPT_VERYVERBOSE,
@@ -159,6 +171,7 @@ void parse_commandline_options(int argc, char* argv[], Options* options) {
     {"include-ggl", no_argument, NULL, OPT_GGL},
     {"grid-threshold", required_argument, NULL, OPT_GRIDTHRESH},
     {"rescue-count", required_argument, NULL, OPT_RESCUE},
+    {"rescue-match-perc", required_argument, NULL, OPT_RESCUE_MATCH_PERC},
     {"bam",         required_argument,  NULL, OPT_BAMFILES},
     {"bam-samps",   required_argument,  NULL, OPT_BAMSAMP},
     {"samp-sex",    required_argument,  NULL, OPT_SAMPSEX},
@@ -187,9 +200,14 @@ void parse_commandline_options(int argc, char* argv[], Options* options) {
     {"stutterdown", required_argument,  NULL, OPT_STUTDW},
     {"stutterprob", required_argument,  NULL, OPT_STUTPR},
     {"numbstrap",   required_argument,  NULL, OPT_NBSTRAP},
+    {"bootstrap-alpha", required_argument, NULL, OPT_BOOTSTRAP_ALPHA},
     {"read-prob-mode",   no_argument,  NULL, OPT_RDPROB},
+    {"opt-xtol-rel-2d", required_argument, NULL, OPT_OPT_XTOL2D},
+    {"opt-xtol-rel-1d", required_argument, NULL, OPT_OPT_XTOL1D},
     {"output-bootstraps", no_argument,      NULL, OPT_OUTBS},
     {"output-readinfo", no_argument,        NULL, OPT_OUTREADINFO},
+    {"realign-match-perc", required_argument, NULL, OPT_REALIGN_MATCH_PERC},
+    {"max-spanning-data", required_argument, NULL, OPT_MAX_SPANNING_DATA},
     {"seed",        required_argument,  NULL, OPT_SEED},
     {"verbose",     no_argument,        NULL, OPT_VERBOSE},
     {"very",  no_argument, NULL, OPT_VERYVERBOSE},
@@ -228,6 +246,9 @@ void parse_commandline_options(int argc, char* argv[], Options* options) {
       break;
     case OPT_RESCUE:
       options->rescue_count = atoi(optarg);
+      break;
+    case OPT_RESCUE_MATCH_PERC:
+      options->rescue_match_perc = atof(optarg);
       break;
     case OPT_BAMFILES:
       options->bamfiles.clear();
@@ -282,7 +303,7 @@ void parse_commandline_options(int argc, char* argv[], Options* options) {
       split_by_delim(optarg, ',', coverage_str);
       options->coverage.clear();
       for (size_t i=0; i<coverage_str.size(); i++) {
-	options->coverage.push_back(atoi(coverage_str[i].c_str()));
+	options->coverage.push_back(strtof(coverage_str[i].c_str(), NULL));
       }
       break;
     case OPT_GCCOV:
@@ -329,14 +350,29 @@ void parse_commandline_options(int argc, char* argv[], Options* options) {
     case OPT_NBSTRAP:
       options->num_boot_samp = atoi(optarg);
       break;
+    case OPT_BOOTSTRAP_ALPHA:
+      options->bootstrap_alpha = atof(optarg);
+      break;
     case OPT_OUTBS:
       options->output_bootstrap = true;
       break;
     case OPT_RDPROB:
       options->read_prob_mode = true;
       break;
+    case OPT_OPT_XTOL2D:
+      options->nlopt_xtol_rel_2d = atof(optarg);
+      break;
+    case OPT_OPT_XTOL1D:
+      options->nlopt_xtol_rel_1d = atof(optarg);
+      break;
     case OPT_OUTREADINFO:
       options->output_readinfo= true;
+      break;
+    case OPT_REALIGN_MATCH_PERC:
+      options->realign_match_perc = atof(optarg);
+      break;
+    case OPT_MAX_SPANNING_DATA:
+      options->max_spanning_data_value = atoi(optarg);
       break;
     case OPT_SEED:
       options->seed = atoi(optarg);
@@ -380,10 +416,28 @@ void parse_commandline_options(int argc, char* argv[], Options* options) {
     PrintMessageDieOnError("No --out option specified", M_ERROR, false);
   }
   if (options->min_match < 0 or (options->read_len != -1 and options->min_match > options->read_len)){
-    PrintMessageDieOnError("--minmatch parameter must be in (0, read_len) range", M_ERROR, false);
+    PrintMessageDieOnError("--minmatch parameter must be >= 0 and <= read_len (when --readlength is set)", M_ERROR, false);
   }
-  if (options->min_score < 0 and options->min_score > 100){
-    PrintMessageDieOnError("--min_score parameter must be in (0, 100) range", M_ERROR, false);
+  if (options->min_score < 0 || options->min_score > 100){
+    PrintMessageDieOnError("--minscore parameter must be in [0, 100] range", M_ERROR, false);
+  }
+  if (options->bootstrap_alpha <= 0.0 || options->bootstrap_alpha >= 1.0){
+    PrintMessageDieOnError("--bootstrap-alpha parameter must be in (0, 1) range", M_ERROR, false);
+  }
+  if (options->nlopt_xtol_rel_2d <= 0.0){
+    PrintMessageDieOnError("--opt-xtol-rel-2d parameter must be > 0", M_ERROR, false);
+  }
+  if (options->nlopt_xtol_rel_1d <= 0.0){
+    PrintMessageDieOnError("--opt-xtol-rel-1d parameter must be > 0", M_ERROR, false);
+  }
+  if (options->rescue_match_perc <= 0.0 || options->rescue_match_perc > 1.0){
+    PrintMessageDieOnError("--rescue-match-perc parameter must be in (0, 1] range", M_ERROR, false);
+  }
+  if (options->realign_match_perc <= 0.0 || options->realign_match_perc > 1.0){
+    PrintMessageDieOnError("--realign-match-perc parameter must be in (0, 1] range", M_ERROR, false);
+  }
+  if (options->max_spanning_data_value < 0){
+    PrintMessageDieOnError("--max-spanning-data parameter must be >= 0", M_ERROR, false);
   }
   
   // Check if bam-samps provided when user uses sam-sex
@@ -450,7 +504,9 @@ int main(int argc, char* argv[]) {
   }
 
   // Second pass: Learn stutter models
-  genotyper.LearnStutterModels(&bamreader, all_loci);
+  if (!genotyper.LearnStutterModels(&bamreader, all_loci)) {
+    PrintMessageDieOnError("Error learning stutter models", M_ERROR, false);
+  }
 
   // Third pass: Genotype each locus
   stringstream ss;

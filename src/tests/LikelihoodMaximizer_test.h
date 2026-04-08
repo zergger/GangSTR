@@ -26,9 +26,8 @@ along with GangSTR.  If not, see <http://www.gnu.org/licenses/>.
 #include "src/locus.h"
 #include "src/options.h"
 #include "src/likelihood_maximizer.h"
-#include "src/read_extractor.h"
-#include "src/ref_genome.h"
-#include "src/genotyper.h"
+#include "src/bam_info_extract.h"
+#include "src/str_info.h"
 
 class LikelihoodMaximizerTest: public CppUnit::TestFixture {
   CPPUNIT_TEST_SUITE(LikelihoodMaximizerTest);
@@ -53,8 +52,9 @@ class LikelihoodMaximizerTest: public CppUnit::TestFixture {
  private:
   LikelihoodMaximizer* likelihood_maximizer_;
   Locus locus;
-  std::string test_dir;
   Options options;
+  SampleProfile sample_profile_;
+  STRLocusInfo str_info_;
   int read_len, motif_len, ref_count;
   bool resampled;
 };

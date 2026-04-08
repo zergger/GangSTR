@@ -79,7 +79,10 @@ Options::Options() {
   quiet = false;
   ploidy = -1;
   num_boot_samp = 100;
+  bootstrap_alpha = 0.05;
   read_prob_mode = false;
+  nlopt_xtol_rel_2d = 0.00005;
+  nlopt_xtol_rel_1d = 0.0005;
   output_bootstrap = false;
   output_readinfo = false;
   //seed = time(NULL);
@@ -90,9 +93,12 @@ Options::Options() {
   use_off = true;
   hist_mode = false;
   rescue_count = 0;
+  rescue_match_perc = 0.8;
   min_reads_per_sample = 500;
   max_processed_reads_per_sample = 3000;
+  max_spanning_data_value = 0;
   skip_qscore = false;
+  realign_match_perc = 0.9;
 }
 
 Options::~Options() {}

@@ -142,6 +142,10 @@ bool EnclosingClass::GetGridBoundaries(int32_t* min_allele, int32_t* max_allele)
 }
 
 bool EnclosingClass::ExtractEnclosingAlleles(std::vector<int> *alleles){
+    if (alleles == NULL) {
+      return false;
+    }
+    size_t before_size = alleles->size();
     std::map<int32_t, int32_t> allele_repeats;
 
 	for (std::vector<int32_t>::iterator data_it = this->read_class_data_.begin();
@@ -165,5 +169,5 @@ bool EnclosingClass::ExtractEnclosingAlleles(std::vector<int> *alleles){
 		    }
   		}
   	}
-	return true;	//TODO add false
+    return alleles->size() > before_size;
 }

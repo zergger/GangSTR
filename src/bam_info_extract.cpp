@@ -151,6 +151,7 @@ bool BamInfoExtract::GetCoverageGC(std::map<std::string, SampleProfile>* profile
     }
     (*profile)[*it].gc_coverage = sample_gc_covs;
   }
+  return true;
 }
 
 bool BamInfoExtract::GetCoverage(std::map<std::string, SampleProfile>* profile,
@@ -386,7 +387,6 @@ bool BamInfoExtract::GetInsertSizeDistribution(std::map<std::string, SampleProfi
 
 BamInfoExtract::~BamInfoExtract(){
 }
-
 
 
 

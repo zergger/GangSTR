@@ -85,6 +85,11 @@ bool Genotyper::LearnStutterModels(BamCramMultiReader* bamreader, std::vector<Lo
     }
 
     for (auto const& locus : loci) {
+        if (!SetFlanks(locus)) {
+            PrintMessageDieOnError("Failed to set flanking sequence for stutter learning at locus " + locus->chrom + ":" + std::to_string(locus->start), M_WARNING, options->quiet);
+            continue;
+        }
+
         // We need a temporary map of likelihood maximizers just for extracting reads for this locus.
         std::map<std::string, LikelihoodMaximizer*> temp_lms;
         std::set<std::string> rg_samples = sample_info->GetSamples();
@@ -93,6 +98,9 @@ bool Genotyper::LearnStutterModels(BamCramMultiReader* bamreader, std::vector<Lo
             if (sample_info->GetSampleProfile(samp, &sp)) {
                 temp_lms[samp] = new LikelihoodMaximizer(*options, sp, sample_info->GetReadLength(), sample_info->GetSampleSex(samp));
             } else {
+                for (auto const& item : temp_lms) {
+                    delete item.second;
+                }
                 PrintMessageDieOnError("Could not find sample profile for " + samp, M_ERROR, false);
                 return false;
             }
@@ -128,6 +136,11 @@ bool Genotyper::LearnStutterModels(BamCramMultiReader* bamreader, std::vector<Lo
         bool success = em_learner.train(20, 0.01);
 
         std::string locus_id = locus->chrom + ":" + std::to_string(locus->start);
+        std::map<std::string, HipStutterModel*>::iterator existing_model = locus_stutter_models.find(locus_id);
+        if (existing_model != locus_stutter_models.end()) {
+            delete existing_model->second;
+            existing_model->second = nullptr;
+        }
         if (success) {
             locus_stutter_models[locus_id] = em_learner.get_stutter_model()->copy();
             if (options->verbose) {
@@ -362,6 +375,10 @@ Genotyper::~Genotyper() {
   delete read_extractor;
   for (std::map<std::string, LikelihoodMaximizer*>::iterator it = sample_likelihood_maximizers.begin();
        it != sample_likelihood_maximizers.end(); it++) {
+    delete it->second;
+  }
+  for (std::map<std::string, HipStutterModel*>::iterator it = locus_stutter_models.begin();
+       it != locus_stutter_models.end(); it++) {
     delete it->second;
   }
 }

@@ -77,7 +77,7 @@ do
 	-d -h -l 1"
 done | xargs -P${NUMPROC} -I% -n 1 sh -c "%"
 
-# TODO implement here any other filters we would like to have on the reference
+# Hook: add any additional filters for the reference here
 for chrom in $(seq 1 $MAXCHR) $NONNUM
 do
     cat ${tmpdir}/chr${chrom}.fa.${matchscore}.${mismatchscore}.${indelscore}.${pm}.${pi}.${minscore}.${maxperiod}.dat | \

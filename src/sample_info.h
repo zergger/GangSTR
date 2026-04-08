@@ -63,6 +63,12 @@ class SampleInfo {
   std::vector<double> GetDistIntegral(std::string sample);
   const std::string GetSampleFromID(const std::string& rgid);
   bool GetSampleProfile(const std::string& sample, SampleProfile* sp);
+  void RegisterSampleProfile(const std::string& rgid,
+                             const std::string& sample,
+                             const SampleProfile& sp,
+                             const std::string& sex,
+                             const int32_t& _read_len,
+                             const bool use_custom_read_groups);
   /* Other utils */
   void PrintSampleInfo(const std::string& logfilename);
   double GetDistMax(const std::string& sample);

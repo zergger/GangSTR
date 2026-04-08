@@ -55,7 +55,7 @@ void RealignmentTest::test_ExpansionAwareRealign() {
   // Case 1 - enclosing
   for (int32_t i=0; i<20; i++) {
     seq = ConstructSeq(pre_flank, post_flank, motif, i);
-    qual = seq;   // TODO set appropriate qual
+    qual = seq;   // quality placeholder
     if (!expansion_aware_realign(seq, qual, pre_flank, post_flank, motif,
 				 &nCopy, &pos, &end_pos, &score)) {
       CPPUNIT_FAIL("expansion_aware_realign returned false unexpectedly");
@@ -67,7 +67,7 @@ void RealignmentTest::test_ExpansionAwareRealign() {
   // Case 2 - preflank
   for (int32_t i=0; i<50; i++) {
     seq = ConstructSeq(pre_flank, "", motif, i);
-    qual = seq;   // TODO set appropriate qual
+    qual = seq;   // quality placeholder
     if (!expansion_aware_realign(seq, qual, pre_flank, post_flank, motif,
 				 &nCopy, &pos, &end_pos, &score)) {
       CPPUNIT_FAIL("expansion_aware_realign returned false unexpectedly");
@@ -79,7 +79,7 @@ void RealignmentTest::test_ExpansionAwareRealign() {
   // Case 3 - postflank
   for (int32_t i=0; i<50; i++) {
     seq = ConstructSeq("", post_flank, motif, i);
-    qual = seq;   // TODO set appropriate qual
+    qual = seq;   // quality placeholder
     if (!expansion_aware_realign(seq, qual, pre_flank, post_flank, motif,
 				 &nCopy, &pos, &end_pos, &score)) {
       CPPUNIT_FAIL("expansion_aware_realign returned false unexpectedly");
@@ -89,7 +89,7 @@ void RealignmentTest::test_ExpansionAwareRealign() {
   // Case 3 - IRR
   for (int32_t i=0; i<50; i++) {
     seq = ConstructSeq("", "", motif, i);
-    qual = seq;   // TODO set appropriate qual
+    qual = seq;   // quality placeholder
     if (!expansion_aware_realign(seq, qual, pre_flank, post_flank, motif,
 				 &nCopy, &pos, &end_pos, &score)) {
       CPPUNIT_FAIL("expansion_aware_realign returned false unexpectedly");
@@ -98,7 +98,7 @@ void RealignmentTest::test_ExpansionAwareRealign() {
   }
   // Case 4 - random sequence
   seq ="NNNNNNNNNNN";
-  qual = seq;   // TODO set appropriate qual
+  qual = seq;   // quality placeholder
   if (!expansion_aware_realign(seq, qual, pre_flank, post_flank, motif,
 			       &nCopy, &pos, &end_pos, &score)) {
     CPPUNIT_FAIL("expansion_aware_realign returned false unexpectedly");
@@ -113,7 +113,7 @@ void RealignmentTest::test_SmithWaterman() {
   // Case 1
   seq1 = "ACGT";
   seq2 = "ACGT";
-  std::string qual = "ATCA"; // TODO fix -> qual
+  std::string qual = "ATCA"; // quality placeholder
   int32_t pos, score, pos_temp;
   if (!striped_smith_waterman(seq1, seq2, qual, &pos, &pos_temp, &score)) {
     CPPUNIT_FAIL("striped_smith_waterman returned false unexpectedly");
@@ -123,7 +123,7 @@ void RealignmentTest::test_SmithWaterman() {
   // Case 2
   seq1 = "ATCACGT";
   seq2 = "ATCGCGT";
-  qual = "ATCACTA";   // TODO fix -> qual
+  qual = "ATCACTA";   // quality placeholder
   if (!striped_smith_waterman(seq1, seq2, qual, &pos, &pos_temp, &score)) {
     CPPUNIT_FAIL("striped_smith_waterman returned false unexpectedly");
   }
@@ -146,7 +146,7 @@ void RealignmentTest::test_SmithWaterman() {
 //   // Case 1 - trivial matching
 //   std::string seq1 = "ACT";
 //   std::string seq2 = "ACT";
-//   std::string qual = "AAA";   // TODO set appropriate qual
+//   std::string qual = "AAA";   // quality placeholder
 //   int32_t rows = (int32_t)seq1.size() + 1;
 //   int32_t cols = (int32_t)seq2.size() + 1;
 //   std::vector<std::vector<int32_t> > score_matrix;
@@ -161,7 +161,7 @@ void RealignmentTest::test_SmithWaterman() {
 //   // Case 2 - almost trivial matching
 //   seq1 = "ACTG";
 //   seq2 = "ACT";
-//   qual = "AAAA";    // TODO set appropriate qual
+//   qual = "AAAA";    // quality placeholder
 //   rows = (int32_t)seq1.size() + 1;
 //   cols = (int32_t)seq2.size() + 1;
 //   std::vector<std::vector<int32_t> > score_matrix2;
@@ -175,7 +175,7 @@ void RealignmentTest::test_SmithWaterman() {
 //   // Case 3
 //   seq1 = "ACCTGA";
 //   seq2 = "CCTG";
-//   qual = "AAAAAA";    // TODO set appropriate qual
+//   qual = "AAAAAA";    // quality placeholder
 //   rows = (int32_t)seq1.size() + 1;
 //   cols = (int32_t)seq2.size() + 1;
 //   std::vector<std::vector<int32_t> > score_matrix3;
@@ -189,7 +189,7 @@ void RealignmentTest::test_SmithWaterman() {
 //   // Case 4
 //   seq1 = "ACCTGAT";
 //   seq2 = "ACTGAT";
-//   qual = "AAAAAAA";   // TODO set appropriate qual
+//   qual = "AAAAAAA";   // quality placeholder
 //   rows = (int32_t)seq1.size() + 1;
 //   cols = (int32_t)seq2.size() + 1;
 //   std::vector<std::vector<int32_t> > score_matrix4;
@@ -205,7 +205,7 @@ void RealignmentTest::test_SmithWaterman() {
 // void RealignmentTest::test_CalcScore() {
 //   std::string seq1 = "ATCT";
 //   std::string seq2 = "ACT";
-//   std::string qual = "AAAA";  // TODO set appropriate qual
+//   std::string qual = "AAAA";  // quality placeholder
 //   int32_t rows = (int32_t)seq1.size() + 1;
 //   int32_t cols = (int32_t)seq2.size() + 1;
 //   std::vector<std::vector<int32_t> > score_matrix;
@@ -267,58 +267,57 @@ void RealignmentTest::test_ClassifyRealignedRead() {
   // Case 1 - enclosing
   for (int32_t i=1; i<20; i++) {
     seq = ConstructSeq(pre_flank, post_flank, motif, i);
-    qual = seq;   // TODO set appropriate qual
+    qual = seq;   // quality placeholder
     expansion_aware_realign(seq, qual, pre_flank, post_flank, motif,
 			    &nCopy, &pos, &end_pos, &score);
-    classify_realigned_read(seq, motif, pos, end_pos, nCopy, score, (int32_t)pre_flank.size(),
+    classify_realigned_read(seq, motif, pos, end_pos, nCopy, score, MATCH_PERC_THRESHOLD, (int32_t)pre_flank.size(),
 			    min_match, pre_flank, post_flank, &src);
     CPPUNIT_ASSERT_EQUAL(SR_ENCLOSING, src);
   }
   // Case 2 - preflank
   for (int32_t i=1; i<20; i++) {
     seq = ConstructSeq(pre_flank, "", motif, i);
-    qual = seq;   // TODO set appropriate qual
+    qual = seq;   // quality placeholder
     expansion_aware_realign(seq, qual, pre_flank, post_flank, motif,
 			    &nCopy, &pos, &end_pos, &score);
-    classify_realigned_read(seq, motif, pos, end_pos, nCopy, score, (int32_t)pre_flank.size(),
+    classify_realigned_read(seq, motif, pos, end_pos, nCopy, score, MATCH_PERC_THRESHOLD, (int32_t)pre_flank.size(),
           min_match, pre_flank, post_flank, &src);
     CPPUNIT_ASSERT_EQUAL(SR_PREFLANK, src);
   }
   // Case 3 - postflank
   for (int32_t i=1; i<20; i++) {
     seq = ConstructSeq("", post_flank, motif, i);
-    qual = seq;   // TODO set appropriate qual
+    qual = seq;   // quality placeholder
     expansion_aware_realign(seq, qual, pre_flank, post_flank, motif,
 			    &nCopy, &pos, &end_pos, &score);
-    classify_realigned_read(seq, motif, pos, end_pos, nCopy, score, (int32_t)pre_flank.size(),
+    classify_realigned_read(seq, motif, pos, end_pos, nCopy, score, MATCH_PERC_THRESHOLD, (int32_t)pre_flank.size(),
           min_match, pre_flank, post_flank, &src);
     CPPUNIT_ASSERT_EQUAL(SR_POSTFLANK, src);
   }
   // Case 4 - IRR
   for (int32_t i=1; i<20; i++) {
     seq = ConstructSeq("", "", motif, i);
-    qual = seq;   // TODO set appropriate qual
+    qual = seq;   // quality placeholder
     expansion_aware_realign(seq, qual, pre_flank, post_flank, motif,
 			    &nCopy, &pos, &end_pos, &score);
-    classify_realigned_read(seq, motif, pos, end_pos, nCopy, score, (int32_t)pre_flank.size(),
+    classify_realigned_read(seq, motif, pos, end_pos, nCopy, score, MATCH_PERC_THRESHOLD, (int32_t)pre_flank.size(),
           min_match, pre_flank, post_flank, &src);
     CPPUNIT_ASSERT_EQUAL(SR_IRR, src);
   }
   // Case 5 - unknown
   seq = "NNNNNNNNNNN";
-  qual = seq;   // TODO set appropriate qual
+  qual = seq;   // quality placeholder
   expansion_aware_realign(seq, qual, pre_flank, post_flank, motif,
 			  &nCopy, &pos, &end_pos, &score);
-  classify_realigned_read(seq, motif, pos, end_pos, nCopy, score, (int32_t)pre_flank.size(),
+  classify_realigned_read(seq, motif, pos, end_pos, nCopy, score, MATCH_PERC_THRESHOLD, (int32_t)pre_flank.size(),
           min_match, pre_flank, post_flank, &src);
   CPPUNIT_ASSERT_EQUAL(SR_UNKNOWN, src);
   seq = "ATACGTACGATCTACAG";
-  qual = seq;   // TODO set appropriate qual
+  qual = seq;   // quality placeholder
   expansion_aware_realign(seq, qual, pre_flank, post_flank, motif,
 			  &nCopy, &pos, &end_pos, &score);
-  classify_realigned_read(seq, motif, pos, end_pos, nCopy, score, (int32_t)pre_flank.size(),
+  classify_realigned_read(seq, motif, pos, end_pos, nCopy, score, MATCH_PERC_THRESHOLD, (int32_t)pre_flank.size(),
           min_match, pre_flank, post_flank, &src);
 	  CPPUNIT_ASSERT_EQUAL(SR_UNKNOWN, src); */
 }
-
 

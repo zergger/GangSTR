@@ -416,9 +416,7 @@ bool calc_score(const int32_t& i, const int32_t& j,
   int32_t baseq = int32_t(qual.at(j-1));
   int32_t similarity = (seq1.at(i-1)==seq2.at(j-1)) ? 
     MATCH_SCORE : MISMATCH_SCORE;
-  // TODO pass threshold instead of hard code
-  // int32_t similarity = (seq1.at(i-1)==seq2.at(j-1)) ? 
-  //   MATCH_SCORE : (baseq>45 ? MISMATCH_SCORE : MISMATCH_SCORE / 4);
+  // Base-quality-aware mismatch penalties can be added here if needed.
   int32_t diag_score = score_matrix->at(i-1).at(j-1) + similarity;
   if (diag_score > max_score) {
     max_score = diag_score;
@@ -436,14 +434,15 @@ bool calc_score(const int32_t& i, const int32_t& j,
 }
 
 bool classify_realigned_read(const std::string& seq,
-			     const std::string& motif,
-			     const int32_t& start_pos,
-			     const int32_t& end_pos,
-			     const int32_t& nCopy,
-			     const int32_t& score,
-			     const int32_t& prefix_length,
-			     const int32_t& min_match,
-			     const bool& isMapped,
+				     const std::string& motif,
+				     const int32_t& start_pos,
+				     const int32_t& end_pos,
+				     const int32_t& nCopy,
+				     const int32_t& score,
+				     const double& match_perc_threshold,
+				     const int32_t& prefix_length,
+				     const int32_t& min_match,
+				     const bool& isMapped,
 			     const std::string& pre_flank,
 			     const std::string& post_flank,
 			     const FlankMatchState& fm_pref, // preflank match status
@@ -474,23 +473,19 @@ bool classify_realigned_read(const std::string& seq,
     *single_read_class = SR_ENCLOSING;
     return true;
   }
-  else if (fm_pref == FM_COMPLETE && end_in_str && re_end == RE_COMPLETE){ // TODO remove redundant condition
+  else if (fm_pref == FM_COMPLETE && end_in_str && re_end == RE_COMPLETE){
     *single_read_class = SR_PREFLANK;
     return true;
   }
-  else if (fm_posf == FM_COMPLETE && start_in_str && re_start == RE_COMPLETE){ // TODO remove redundant condition
+  else if (fm_posf == FM_COMPLETE && start_in_str && re_start == RE_COMPLETE){
     *single_read_class = SR_POSTFLANK;
     return true;
   }
 
-  // TODO:
-  /*
-    Only check for FRR now, no need for checking for other types of reads.
-    Remove extra checks (specially flank checks)
-  */
+  // Only check for FRR now; other read types are handled above.
 
   // Set threshold for match
-  int32_t score_threshold = (int32_t)(MATCH_PERC_THRESHOLD*seq.size()*SSW_MATCH_SCORE);
+  int32_t score_threshold = (int32_t)(match_perc_threshold*seq.size()*SSW_MATCH_SCORE);
 
   if (isMapped && (score < score_threshold || nCopy == 0)) {
     *single_read_class = SR_UNKNOWN;

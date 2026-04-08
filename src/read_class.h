@@ -35,7 +35,7 @@ along with GangSTR.  If not, see <http://www.gnu.org/licenses/>.
 class ReadClass {
   friend class ReadClassTest;
  public:
-  constexpr static double NEG_INF = -25; // TODO make smaller?
+  constexpr static double NEG_INF = -25; // Log-probability floor used in likelihoods.
   ReadClass();
   virtual ~ReadClass();
 
@@ -89,7 +89,7 @@ class ReadClass {
   std::vector<int32_t> read_class_data_;
   
 
-  // Allele weights. TODO: change if phasing available, would need per-read weights
+  // Allele weights assume unphased diploid data (equal contribution per allele).
   constexpr static double allele1_weight_ = 0.5;
   constexpr static double allele2_weight_ = 0.5;
 

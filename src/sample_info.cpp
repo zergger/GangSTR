@@ -314,5 +314,19 @@ bool SampleInfo::GetSampleProfile(const std::string& sample, SampleProfile* sp) 
   return false;
 }
 
+void SampleInfo::RegisterSampleProfile(const std::string& rgid,
+                                       const std::string& sample,
+                                       const SampleProfile& sp,
+                                       const std::string& sex,
+                                       const int32_t& _read_len,
+                                       const bool use_custom_read_groups) {
+  custom_read_groups = use_custom_read_groups;
+  rg_ids_to_sample[rgid] = sample;
+  rg_sample_to_sex[sample] = sex;
+  rg_samples.insert(sample);
+  profile[sample] = sp;
+  read_len = _read_len;
+}
+
 SampleInfo::~SampleInfo() {
 }

@@ -79,38 +79,23 @@ bool FlankingClass::GetAlleleLogLikelihood(const int32_t& allele,
 	return true;
 }
 
-bool FlankingClass::GetAlleleLogLikelihood(const int32_t& allele,
-				   const int32_t& data,
-				   const int32_t& motif_len,
-                   const HipStutterModel* stutter_model,
-				   double* allele_ll){
-    if (stutter_model == nullptr) {
-        // Fallback to old model if no new model is provided
-        return GetAlleleLogLikelihood(allele, data, 0, motif_len, 0, allele_ll);
-    }
-    *allele_ll = stutter_model->log_stutter_pmf(allele * motif_len, data * motif_len);
-	return true;
-}
-
 bool FlankingClass::GetClassLogLikelihood(const int32_t& allele1,
 				      const int32_t& allele2,
 				      const int32_t& read_len, const int32_t& motif_len,
 				      const int32_t& ref_count, const int32_t& ploidy,
                       const HipStutterModel* stutter_model,
 				      double* class_ll) {
+  (void)stutter_model;
   *class_ll = 0;
   double samp_log_likelihood, a1_ll, a2_ll;
   for (std::vector<int32_t>::iterator data_it = read_class_data_.begin();
        data_it != read_class_data_.end();
        data_it++) {
-    if (stutter_model != nullptr) {
-        // Use new model
-        GetAlleleLogLikelihood(allele1, *data_it, motif_len, stutter_model, &a1_ll);
-        GetAlleleLogLikelihood(allele2, *data_it, motif_len, stutter_model, &a2_ll);
-    } else {
-        // Fallback to old model
-        GetAlleleLogLikelihood(allele1, *data_it, read_len, motif_len, ref_count, &a1_ll);
-        GetAlleleLogLikelihood(allele2, *data_it, read_len, motif_len, ref_count, &a2_ll);
+    if (!GetAlleleLogLikelihood(allele1, *data_it, read_len, motif_len, ref_count, &a1_ll)) {
+      return false;
+    }
+    if (!GetAlleleLogLikelihood(allele2, *data_it, read_len, motif_len, ref_count, &a2_ll)) {
+      return false;
     }
 
     if (ploidy == 2){
@@ -132,4 +117,3 @@ bool FlankingClass::GetGridBoundaries(int32_t* min_allele, int32_t* max_allele) 
   }
   return true;
 }
-

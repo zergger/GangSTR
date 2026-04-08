@@ -19,33 +19,72 @@ along with GangSTR.  If not, see <http://www.gnu.org/licenses/>.
 */
 
 #include "src/tests/ReadClass_test.h"
-#include <math.h>
-#include <iostream>
+
+#include <gsl/gsl_cdf.h>
+#include <gsl/gsl_randist.h>
+
+#include <cmath>
+#include <string>
+
 using namespace std;
-// Registers the fixture into the 'registry'
+
 CPPUNIT_TEST_SUITE_REGISTRATION(ReadClassTest);
 
+namespace {
+
+SampleProfile BuildSampleProfile(const double mean, const double sdev, const int dist_size) {
+  SampleProfile sp;
+  sp.rg_sample = "test";
+  sp.rg_id = "test_rg";
+  sp.dist_mean = mean;
+  sp.dist_sdev = sdev;
+  sp.coverage = 30.0;
+  sp.dist_pdf.resize(dist_size);
+  sp.dist_cdf.resize(dist_size);
+  sp.dist_integral.resize(dist_size);
+
+  double running = 0.0;
+  for (int i = 0; i < dist_size; ++i) {
+    sp.dist_pdf[i] = gsl_ran_gaussian_pdf(i - mean, sdev);
+    sp.dist_cdf[i] = gsl_cdf_gaussian_P(i - mean, sdev);
+    running += i * sp.dist_pdf[i];
+    sp.dist_integral[i] = running;
+  }
+  if (!sp.dist_cdf.empty()) {
+    sp.dist_cdf.back() = 1.0;
+  }
+  return sp;
+}
+
+void AssertAlmostEqual(const double observed, const double expected, const double tol = 1e-9) {
+  CPPUNIT_ASSERT_DOUBLES_EQUAL(expected, observed, tol);
+}
+
+}  // namespace
+
 void ReadClassTest::setUp() {
-  Options options;
+  sample_profile_ = BuildSampleProfile(400.0, 50.0, 2000);
+  str_info_.exp_thresh = 0;
+  str_info_.stutter_up = 0.01;
+  str_info_.stutter_down = 0.02;
+  str_info_.stutter_p = 0.95;
 
-  options.dist_mean = 400;
-  options.dist_sdev = 50;
-  options.stutter_up = 0.01;
-  options.stutter_down = 0.02;
-  options.stutter_p = 0.95;
-  options.flanklen = 2000;
-  options.realignment_flanklen = 100;
-  options.frr_weight = 0.8;
-  options.enclosing_weight = 1.0;
-  options.spanning_weight = 1.0;
-  options.verbose = false;
+  encl_class_.SetGlobalParams(sample_profile_, 2000, false, false);
+  span_class_.SetGlobalParams(sample_profile_, 2000, false, false);
+  frr_class_.SetGlobalParams(sample_profile_, 2000, false, false);
 
-  encl_class_.SetOptions(options);
-  span_class_.SetOptions(options);
-  frr_class_.SetOptions(options);
+  encl_class_.SetLocusParams(str_info_);
+  span_class_.SetLocusParams(str_info_);
+  frr_class_.SetLocusParams(str_info_);
+
+  encl_class_.SetCoverage(30);
+  span_class_.SetCoverage(30);
+  frr_class_.SetCoverage(30);
+
   encl_class_.Reset();
   span_class_.Reset();
   frr_class_.Reset();
+
   read_len = 100;
   motif_len = 3;
   ref_count = 10;
@@ -55,150 +94,113 @@ void ReadClassTest::setUp() {
 void ReadClassTest::tearDown() {}
 
 void ReadClassTest::test_AddData() {
-  int32_t test_data1 = 10;
-  int32_t test_data2 = 20;
-  int32_t test_data3 = 30;
-  encl_class_.AddData(test_data1);
-  encl_class_.AddData(test_data2);
-  span_class_.AddData(test_data1);
-  span_class_.AddData(test_data2);
-  span_class_.AddData(test_data3);
-  frr_class_.AddData(test_data1);
-  CPPUNIT_ASSERT_EQUAL((int)encl_class_.GetDataSize(), 2);
-  CPPUNIT_ASSERT_EQUAL((int)span_class_.GetDataSize(), 3);
-  CPPUNIT_ASSERT_EQUAL((int)frr_class_.GetDataSize(), 1);
+  encl_class_.AddData(10);
+  encl_class_.AddData(20);
+  span_class_.AddData(10);
+  span_class_.AddData(20);
+  span_class_.AddData(30);
+  frr_class_.AddData(10);
+  CPPUNIT_ASSERT_EQUAL(static_cast<int>(encl_class_.GetDataSize()), 2);
+  CPPUNIT_ASSERT_EQUAL(static_cast<int>(span_class_.GetDataSize()), 3);
+  CPPUNIT_ASSERT_EQUAL(static_cast<int>(frr_class_.GetDataSize()), 1);
 }
 
 void ReadClassTest::test_Reset() {
-  int32_t test_data1 = 10;
-  int32_t test_data2 = 20;
-  int32_t test_data3 = 30;
-  encl_class_.AddData(test_data1);
-  encl_class_.AddData(test_data2);
-  span_class_.AddData(test_data1);
-  span_class_.AddData(test_data2);
-  span_class_.AddData(test_data3);
-  frr_class_.AddData(test_data1);
+  encl_class_.AddData(10);
+  encl_class_.AddData(20);
+  span_class_.AddData(10);
+  span_class_.AddData(20);
+  span_class_.AddData(30);
+  frr_class_.AddData(10);
   encl_class_.Reset();
   span_class_.Reset();
   frr_class_.Reset();
-  CPPUNIT_ASSERT_EQUAL((int)encl_class_.GetDataSize(), 0);
-  CPPUNIT_ASSERT_EQUAL((int)span_class_.GetDataSize(), 0);
-  CPPUNIT_ASSERT_EQUAL((int)frr_class_.GetDataSize(), 0);
+  CPPUNIT_ASSERT_EQUAL(static_cast<int>(encl_class_.GetDataSize()), 0);
+  CPPUNIT_ASSERT_EQUAL(static_cast<int>(span_class_.GetDataSize()), 0);
+  CPPUNIT_ASSERT_EQUAL(static_cast<int>(frr_class_.GetDataSize()), 0);
 }
-// NOTE:
-// exp: ATXN7_18_class2_cov50_dist400
+
+void ReadClassTest::test_GetReadDictStr() {
+  encl_class_.AddData(20);
+  encl_class_.AddData(10);
+  encl_class_.AddData(20);
+  encl_class_.AddData(30);
+  encl_class_.AddData(20);
+  encl_class_.AddData(10);
+  CPPUNIT_ASSERT_EQUAL(string("10,2|20,3|30,1"), encl_class_.GetReadDictStr());
+}
+
 void ReadClassTest::test_SpanClassProb() {
-  // Example - TODO change
-  int32_t allele = 25;
-  double log_class_prob = 0.5;
-  span_class_.GetLogClassProb(allele, read_len, motif_len, &log_class_prob);
-  CPPUNIT_ASSERT_EQUAL(roundf(log_class_prob*pow(10,13))/pow(10,13), roundf(log(0.0838726946383)*pow(10,13))/pow(10,13));
-  // CPPUNIT_FAIL("test_SpanClassProb not implemented");
+  double log_class_prob = 0.0;
+  CPPUNIT_ASSERT(span_class_.GetLogClassProb(25, read_len, motif_len, &log_class_prob));
+  AssertAlmostEqual(log_class_prob, log(0.0838726946383), 1e-12);
 }
 
 void ReadClassTest::test_SpanReadProb() {
-  // Example - TODO change
-  int32_t allele = 25;
-  double log_allele_prob = 0.5;
-  int32_t data = 450;
-  span_class_.GetLogReadProb(allele, data, read_len, motif_len, ref_count, &log_allele_prob);
-  CPPUNIT_ASSERT_EQUAL(roundf(log_allele_prob*pow(10,13))/pow(10,13), roundf(log(0.00131231629549)*pow(10,13))/pow(10,13));
-  // CPPUNIT_FAIL("test_SpanClassProb not implemented");
+  double log_allele_prob = 0.0;
+  CPPUNIT_ASSERT(span_class_.GetLogReadProb(25, 450, read_len, motif_len, ref_count, &log_allele_prob));
+  AssertAlmostEqual(log_allele_prob, log(0.00131231629549), 1e-11);
 }
 
 void ReadClassTest::test_FRRClassProb() {
-  // Example - TODO change
-  int32_t allele = 45;
-  double log_class_prob = 0.5;
-  frr_class_.GetLogClassProb(allele, read_len, motif_len, &log_class_prob);
-  CPPUNIT_ASSERT_EQUAL(roundf(log_class_prob*pow(10,13))/pow(10,13), roundf(log(0.0177896348168/2)*pow(10,13))/pow(10,13));
-  // CPPUNIT_FAIL("test_FRRClassProb not implemented");
+  double log_class_prob = 0.0;
+  CPPUNIT_ASSERT(frr_class_.GetLogClassProb(45, read_len, motif_len, &log_class_prob));
+  AssertAlmostEqual(log_class_prob, log(0.0177896348168 / 2.0), 1e-11);
 }
 
 void ReadClassTest::test_FRRReadProb() {
-  // Example - TODO change
-  int32_t allele = 45;
-  double log_allele_prob = 0.5;
-  int32_t data = 80;
-  frr_class_.GetLogReadProb(allele, data, read_len, motif_len, ref_count, &log_allele_prob);
-  CPPUNIT_ASSERT_EQUAL(roundf(log_allele_prob*pow(10,13))/pow(10,13), roundf(log(0.0363690786878)*pow(10,13))/pow(10,13));
-  // CPPUNIT_FAIL("test_FRRClassProb not implemented");
+  double log_allele_prob = 0.0;
+  CPPUNIT_ASSERT(frr_class_.GetLogReadProb(45, 80, read_len, motif_len, ref_count, &log_allele_prob));
+  AssertAlmostEqual(log_allele_prob, log(0.0363690786878), 1e-12);
 }
 
 void ReadClassTest::test_EnclosingClassProb() {
-  // Example - TODO change
-  int32_t allele = 25;
-  double log_class_prob = 0.5;
-  encl_class_.GetLogClassProb(allele, read_len, motif_len, &log_class_prob);
-  CPPUNIT_ASSERT_EQUAL(roundf(log_class_prob*pow(10,13))/pow(10,13), roundf(log(0.0129032258065/2)*pow(10,13))/pow(10,13));
-  // CPPUNIT_FAIL("test_EnclosingClassProb not implemented");
+  double log_class_prob = 0.0;
+  CPPUNIT_ASSERT(encl_class_.GetLogClassProb(25, read_len, motif_len, &log_class_prob));
+  AssertAlmostEqual(log_class_prob, log(0.0129032258065 / 2.0), 1e-11);
 }
 
 void ReadClassTest::test_EnclosingReadProb() {
-  // Example - TODO change
-  int32_t allele = 25;
-  double log_allele_prob = 0.5;
-  int32_t data = 25;
-  encl_class_.GetLogReadProb(allele, data, read_len, motif_len, ref_count, &log_allele_prob);
-  CPPUNIT_ASSERT_EQUAL(roundf(log_allele_prob*pow(10,13))/pow(10,13), roundf(log(0.97)*pow(10,13))/pow(10,13));
-  // CPPUNIT_FAIL("test_EnclosingClassProb not implemented");
+  double log_allele_prob = 0.0;
+  CPPUNIT_ASSERT(encl_class_.GetLogReadProb(25, 25, motif_len, nullptr, &log_allele_prob));
+  AssertAlmostEqual(log_allele_prob, log(0.97), 1e-12);
 }
 
 void ReadClassTest::test_GetClassLogLikelihood() {
-  int32_t test_data1 = 10;
-  int32_t test_data2 = 20;
-  int32_t test_data3 = 30;
-  int32_t test_data4 = 40;
-  int32_t allele1 = 20;
-  int32_t allele2 = 50;
-  double class_ll;
-  encl_class_.Reset();
-  encl_class_.AddData(test_data1);
-  encl_class_.AddData(test_data2);
-  encl_class_.AddData(test_data3);
-  encl_class_.AddData(test_data4);
-  encl_class_.GetClassLogLikelihood(allele1, allele2, read_len, motif_len, ref_count, ploidy, &class_ll);
-  CPPUNIT_ASSERT_EQUAL(roundf(class_ll*pow(10,11))/pow(10,11), roundf(-145.199557345*pow(10,11))/pow(10,11));
+  double class_ll = 0.0;
+
+  encl_class_.AddData(10);
+  encl_class_.AddData(20);
+  encl_class_.AddData(30);
+  encl_class_.AddData(40);
+  CPPUNIT_ASSERT(encl_class_.GetClassLogLikelihood(20, 50, read_len, motif_len, ref_count, ploidy, nullptr, &class_ll));
+  // Regression anchor for the current enclosing-likelihood implementation.
+  AssertAlmostEqual(class_ll, -134.979508559486, 1e-9);
 
   span_class_.Reset();
-  span_class_.AddData(test_data2);
-  span_class_.AddData(test_data3);
-  span_class_.AddData(test_data4);
-  // double allele_ll;
-  // cout<<frr_class_.GetLogReadProb(allele1, test_data1, &allele_ll);
-  // cout<<endl<<allele_ll<<endl;
-
-  span_class_.GetClassLogLikelihood(allele1, allele2, read_len, motif_len, ref_count, ploidy, &class_ll);
-  CPPUNIT_ASSERT_EQUAL(roundf(class_ll*pow(10,4))/pow(10,4), roundf(-62.3921692604*pow(10,4))/pow(10,4));
+  span_class_.AddData(20);
+  span_class_.AddData(30);
+  span_class_.AddData(40);
+  CPPUNIT_ASSERT(span_class_.GetClassLogLikelihood(20, 50, read_len, motif_len, ref_count, ploidy, &class_ll));
+  AssertAlmostEqual(class_ll, -62.392179166719, 1e-8);
 
   frr_class_.Reset();
-  frr_class_.AddData(test_data1);
-  frr_class_.AddData(test_data2);
-  frr_class_.AddData(test_data3);
-  frr_class_.AddData(test_data4);
-  frr_class_.GetClassLogLikelihood(allele1, allele2, read_len, motif_len, ref_count, ploidy, &class_ll);
-  CPPUNIT_ASSERT_EQUAL(roundf(class_ll*pow(10,11))/pow(10,11), roundf(-40.8239143859*pow(10,11))/pow(10,11));
-
-  // std::cout<<std::endl<<class_ll<<std::endl;
-  // CPPUNIT_FAIL("test_GetClassLogLikelihood not implemented");
+  frr_class_.AddData(10);
+  frr_class_.AddData(20);
+  frr_class_.AddData(30);
+  frr_class_.AddData(40);
+  CPPUNIT_ASSERT(frr_class_.GetClassLogLikelihood(20, 50, read_len, motif_len, ref_count, ploidy, &class_ll));
+  AssertAlmostEqual(class_ll, -40.8239143859, 1e-9);
 }
 
 void ReadClassTest::test_GetAlleleLogLikelihood() {
-  // Example - TODO change
-  int32_t allele = 25;
-  double allele_ll = 0.5;
-  int32_t data = 24;
-  encl_class_.GetAlleleLogLikelihood(allele, data, read_len, motif_len, ref_count, &allele_ll);
-  CPPUNIT_ASSERT_EQUAL(roundf(allele_ll*pow(10,11))/pow(10,11), roundf(-9.00674141673*pow(10,11))/pow(10,11));
-  allele = 55;
-  data = 430;
-  span_class_.GetAlleleLogLikelihood(allele, data, read_len, motif_len, ref_count, &allele_ll);
-  CPPUNIT_ASSERT_EQUAL(roundf(allele_ll*pow(10,11))/pow(10,11), roundf(-13.1016086835*pow(10,11))/pow(10,11));
-  allele = 55;
-  data = 80;
-  frr_class_.GetAlleleLogLikelihood(allele, data, read_len, motif_len, ref_count, &allele_ll);
-  CPPUNIT_ASSERT_EQUAL(roundf(allele_ll*pow(10,11))/pow(10,11), roundf(-6.17069762893*pow(10,11))/pow(10,11));
-  // CPPUNIT_FAIL("test_GetAlleleLogLikelihood not implemented");
-}
+  double allele_ll = 0.0;
+  CPPUNIT_ASSERT(encl_class_.GetAlleleLogLikelihood(25, 24, read_len, motif_len, ref_count, &allele_ll));
+  AssertAlmostEqual(allele_ll, -9.00674141673, 1e-9);
 
+  CPPUNIT_ASSERT(span_class_.GetAlleleLogLikelihood(55, 430, read_len, motif_len, ref_count, &allele_ll));
+  AssertAlmostEqual(allele_ll, -13.1016086835, 1e-9);
+
+  CPPUNIT_ASSERT(frr_class_.GetAlleleLogLikelihood(55, 80, read_len, motif_len, ref_count, &allele_ll));
+  AssertAlmostEqual(allele_ll, -6.17069762893, 1e-9);
+}

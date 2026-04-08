@@ -65,7 +65,10 @@ double ReadClass::InsertSizeCDF(int32_t x){
   if (x < 0){
     return 0.0;
   }
-  else if (x > 0 and x < dist_distribution_size){
+  else if (dist_distribution_size <= 0){
+    return 1.0;
+  }
+  else if (x < dist_distribution_size){
     return dist_cdf[x];
   }
   else{
@@ -80,7 +83,10 @@ double ReadClass::InsertSizePDF(int32_t x){
   if (x < 0){
     return 0.0;
   }
-  else if (x > 0 and x < dist_distribution_size){
+  else if (dist_distribution_size <= 0){
+    return 0.0;
+  }
+  else if (x < dist_distribution_size){
     return dist_pdf[x];
   }
   else{
@@ -112,9 +118,6 @@ bool ReadClass::GetClassLogLikelihood(const int32_t& allele1,
     if (!GetAlleleLogLikelihood(allele2, *data_it, read_len, motif_len, ref_count, &a2_ll)) {
       return false;
     }
-    // TODO delete
-    // cerr<<typeid(*this).name()<<"\t";
-    // cerr<<*data_it<<"\t"<<fast_log_sum_exp(log(allele1_weight_)+a1_ll, log(allele2_weight_)+a2_ll)<<endl;
     if (ploidy == 2){
       *class_ll += fast_log_sum_exp(log(allele1_weight_)+a1_ll, log(allele2_weight_)+a2_ll);
     }

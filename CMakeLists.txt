@@ -2,14 +2,13 @@ cmake_minimum_required(VERSION 3.10)
 project(GangSTR C CXX)
 
 include(ExternalProject)
-
-set(CMAKE_CXX_STANDARD 17)
+enable_testing()
 
 # Give option to build tests
 configure_file(GangSTRConfig.h.in GangSTRConfig.h)
 
 # specify the C++ standard
-set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 ######################### htslib and dependencies ############################
@@ -96,6 +95,11 @@ target_link_libraries(GangSTR gsl)
 #target_link_libraries(GangSTR gstr pthread)
 #target_link_libraries (GangSTR ${CMAKE_THREAD_LIBS_INIT} gstr )
 install(TARGETS GangSTR DESTINATION bin)
+
+if(BUILD_TESTING)
+  add_test(NAME gangstr_help_smoke COMMAND $<TARGET_FILE:GangSTR> --help)
+  set_tests_properties(gangstr_help_smoke PROPERTIES WILL_FAIL TRUE)
+endif()
 
 add_dependencies(htslib zlib)
 add_dependencies(gstr htslib pnlopt pgsl)

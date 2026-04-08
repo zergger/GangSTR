@@ -26,11 +26,14 @@ along with GangSTR.  If not, see <http://www.gnu.org/licenses/>.
 #include "src/enclosing_class.h"
 #include "src/spanning_class.h"
 #include "src/frr_class.h"
+#include "src/bam_info_extract.h"
+#include "src/str_info.h"
 
 class ReadClassTest: public CppUnit::TestFixture {
   CPPUNIT_TEST_SUITE(ReadClassTest);
   CPPUNIT_TEST(test_AddData);
   CPPUNIT_TEST(test_Reset);
+  CPPUNIT_TEST(test_GetReadDictStr);
   CPPUNIT_TEST(test_SpanClassProb);
   CPPUNIT_TEST(test_SpanReadProb);
   CPPUNIT_TEST(test_FRRClassProb);
@@ -46,6 +49,7 @@ class ReadClassTest: public CppUnit::TestFixture {
   void tearDown();
   void test_AddData();
   void test_Reset();
+  void test_GetReadDictStr();
   void test_SpanClassProb();
   void test_SpanReadProb();
   void test_FRRClassProb();
@@ -55,6 +59,8 @@ class ReadClassTest: public CppUnit::TestFixture {
   void test_GetClassLogLikelihood();
   void test_GetAlleleLogLikelihood();
  private:
+  SampleProfile sample_profile_;
+  STRLocusInfo str_info_;
   EnclosingClass encl_class_;
   SpanningClass span_class_;
   FRRClass frr_class_;

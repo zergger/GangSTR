@@ -20,18 +20,45 @@ along with GangSTR.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "src/tests/LikelihoodMaximizer_test.h"
 
-#include "src/bam_io.h"
-#include <math.h>
+#include <gsl/gsl_cdf.h>
+#include <gsl/gsl_randist.h>
 
-#include <iostream>
+#include <cmath>
+
 using namespace std;
 
-// Registers the fixture into the 'registry'
 CPPUNIT_TEST_SUITE_REGISTRATION(LikelihoodMaximizerTest);
 
+namespace {
+
+SampleProfile BuildSampleProfile(const double mean, const double sdev, const int dist_size) {
+  SampleProfile sp;
+  sp.rg_sample = "test";
+  sp.rg_id = "test_rg";
+  sp.dist_mean = mean;
+  sp.dist_sdev = sdev;
+  sp.coverage = 30.0;
+  sp.dist_pdf.resize(dist_size);
+  sp.dist_cdf.resize(dist_size);
+  sp.dist_integral.resize(dist_size);
+
+  double running = 0.0;
+  for (int i = 0; i < dist_size; ++i) {
+    sp.dist_pdf[i] = gsl_ran_gaussian_pdf(i - mean, sdev);
+    sp.dist_cdf[i] = gsl_cdf_gaussian_P(i - mean, sdev);
+    running += i * sp.dist_pdf[i];
+    sp.dist_integral[i] = running;
+  }
+  if (!sp.dist_cdf.empty()) {
+    sp.dist_cdf.back() = 1.0;
+  }
+  return sp;
+}
+
+}  // namespace
+
 void LikelihoodMaximizerTest::setUp() {
-  options.dist_mean = 400;
-  options.dist_sdev = 50;
+  options = Options();
   options.stutter_up = 0.01;
   options.stutter_down = 0.02;
   options.stutter_p = 0.95;
@@ -40,170 +67,112 @@ void LikelihoodMaximizerTest::setUp() {
   options.frr_weight = 1.0;
   options.enclosing_weight = 1.0;
   options.spanning_weight = 1.0;
+  options.flanking_weight = 1.0;
   options.verbose = false;
   options.min_match = 0;
   options.read_len = 100;
-  likelihood_maximizer_ = new LikelihoodMaximizer(options);
-  likelihood_maximizer_->Reset();
+  options.use_cov = false;
+  options.hist_mode = false;
+
   read_len = 100;
   motif_len = 3;
   ref_count = 10;
   resampled = false;
 
-
-  test_dir = getenv("GANGSTR_TEST_DIR");
   locus.chrom = "19";
   locus.start = 5000;
   locus.end = 5039;
   locus.motif = "CTG";
   locus.period = 3;
+
+  sample_profile_ = BuildSampleProfile(400.0, 50.0, 2000);
+  str_info_.exp_thresh = 0;
+  str_info_.stutter_up = 0.01;
+  str_info_.stutter_down = 0.02;
+  str_info_.stutter_p = 0.95;
+
+  likelihood_maximizer_ = new LikelihoodMaximizer(options, sample_profile_, read_len, "F");
+  likelihood_maximizer_->Reset();
+  likelihood_maximizer_->SetLocusParams(str_info_, sample_profile_.coverage, read_len, motif_len, ref_count, locus.chrom);
 }
 
-void LikelihoodMaximizerTest::tearDown() {}
+void LikelihoodMaximizerTest::tearDown() {
+  delete likelihood_maximizer_;
+  likelihood_maximizer_ = nullptr;
+}
 
 void LikelihoodMaximizerTest::test_Reset() {
-  int32_t test_data1 = 10;
-  int32_t test_data2 = 20;
-  int32_t test_data3 = 30;
+  likelihood_maximizer_->AddEnclosingData(10);
+  likelihood_maximizer_->AddSpanningData(20);
+  likelihood_maximizer_->AddFRRData(30);
   likelihood_maximizer_->Reset();
-  likelihood_maximizer_->AddEnclosingData(test_data1);
-  likelihood_maximizer_->AddSpanningData(test_data2);
-  likelihood_maximizer_->AddFRRData(test_data3);
-  likelihood_maximizer_->Reset();
-  CPPUNIT_ASSERT_EQUAL((int)likelihood_maximizer_->GetEnclosingDataSize(), 0);
-  CPPUNIT_ASSERT_EQUAL((int)likelihood_maximizer_->GetSpanningDataSize(), 0);
-  CPPUNIT_ASSERT_EQUAL((int)likelihood_maximizer_->GetFRRDataSize(), 0);
+  CPPUNIT_ASSERT_EQUAL(static_cast<int>(likelihood_maximizer_->GetEnclosingDataSize()), 0);
+  CPPUNIT_ASSERT_EQUAL(static_cast<int>(likelihood_maximizer_->GetSpanningDataSize()), 0);
+  CPPUNIT_ASSERT_EQUAL(static_cast<int>(likelihood_maximizer_->GetFRRDataSize()), 0);
+  CPPUNIT_ASSERT_EQUAL(static_cast<int>(likelihood_maximizer_->GetReadPoolSize()), 0);
 }
 
 void LikelihoodMaximizerTest::test_AddEnclosingData() {
-  int32_t test_data1 = 10;
-  int32_t test_data2 = 20;
-  int32_t test_data3 = 30;
   likelihood_maximizer_->Reset();
-  likelihood_maximizer_->AddEnclosingData(test_data1);
-  likelihood_maximizer_->AddEnclosingData(test_data2);
-  likelihood_maximizer_->AddEnclosingData(test_data3);
-  CPPUNIT_ASSERT_EQUAL((int)likelihood_maximizer_->GetEnclosingDataSize(), 3);
-  CPPUNIT_ASSERT_EQUAL((int)likelihood_maximizer_->GetSpanningDataSize(), 0);
-  CPPUNIT_ASSERT_EQUAL((int)likelihood_maximizer_->GetFRRDataSize(), 0);
+  likelihood_maximizer_->SetLocusParams(str_info_, sample_profile_.coverage, read_len, motif_len, ref_count, locus.chrom);
+  likelihood_maximizer_->AddEnclosingData(10);
+  likelihood_maximizer_->AddEnclosingData(20);
+  likelihood_maximizer_->AddEnclosingData(30);
+  CPPUNIT_ASSERT_EQUAL(static_cast<int>(likelihood_maximizer_->GetEnclosingDataSize()), 3);
+  CPPUNIT_ASSERT_EQUAL(static_cast<int>(likelihood_maximizer_->GetSpanningDataSize()), 0);
+  CPPUNIT_ASSERT_EQUAL(static_cast<int>(likelihood_maximizer_->GetFRRDataSize()), 0);
 }
 
 void LikelihoodMaximizerTest::test_AddSpanningData() {
-  int32_t test_data1 = 10;
   likelihood_maximizer_->Reset();
-  likelihood_maximizer_->AddSpanningData(test_data1);
-  CPPUNIT_ASSERT_EQUAL((int)likelihood_maximizer_->GetSpanningDataSize(), 1);
-  CPPUNIT_ASSERT_EQUAL((int)likelihood_maximizer_->GetEnclosingDataSize(), 0);
-  CPPUNIT_ASSERT_EQUAL((int)likelihood_maximizer_->GetFRRDataSize(), 0);
+  likelihood_maximizer_->SetLocusParams(str_info_, sample_profile_.coverage, read_len, motif_len, ref_count, locus.chrom);
+  likelihood_maximizer_->AddSpanningData(10);
+  CPPUNIT_ASSERT_EQUAL(static_cast<int>(likelihood_maximizer_->GetSpanningDataSize()), 1);
+  CPPUNIT_ASSERT_EQUAL(static_cast<int>(likelihood_maximizer_->GetEnclosingDataSize()), 0);
+  CPPUNIT_ASSERT_EQUAL(static_cast<int>(likelihood_maximizer_->GetFRRDataSize()), 0);
 }
 
 void LikelihoodMaximizerTest::test_AddFRRData() {
-  int32_t test_data1 = 10;
-  int32_t test_data2 = 20;
   likelihood_maximizer_->Reset();
-  likelihood_maximizer_->AddFRRData(test_data1);
-  likelihood_maximizer_->AddFRRData(test_data2);
-  CPPUNIT_ASSERT_EQUAL((int)likelihood_maximizer_->GetFRRDataSize(), 2);
-  CPPUNIT_ASSERT_EQUAL((int)likelihood_maximizer_->GetEnclosingDataSize(), 0);
-  CPPUNIT_ASSERT_EQUAL((int)likelihood_maximizer_->GetSpanningDataSize(), 0);
+  likelihood_maximizer_->SetLocusParams(str_info_, sample_profile_.coverage, read_len, motif_len, ref_count, locus.chrom);
+  likelihood_maximizer_->AddFRRData(10);
+  likelihood_maximizer_->AddFRRData(20);
+  CPPUNIT_ASSERT_EQUAL(static_cast<int>(likelihood_maximizer_->GetFRRDataSize()), 2);
+  CPPUNIT_ASSERT_EQUAL(static_cast<int>(likelihood_maximizer_->GetEnclosingDataSize()), 0);
+  CPPUNIT_ASSERT_EQUAL(static_cast<int>(likelihood_maximizer_->GetSpanningDataSize()), 0);
 }
 
 void LikelihoodMaximizerTest::test_GetGenotypeNegLogLikelihood() {
-  /*
-  int32_t allele1 = 10, allele2 = 30;
-  int32_t test_data1 = 10;
-  int32_t test_data2 = 380;
-  int32_t test_data3 = 80;
   likelihood_maximizer_->Reset();
-  likelihood_maximizer_->AddEnclosingData(test_data1);
-  likelihood_maximizer_->AddSpanningData(test_data2);
-  // likelihood_maximizer_->AddFRRData(test_data3);   // TODO add an example with all reads
+  likelihood_maximizer_->SetLocusParams(str_info_, sample_profile_.coverage, read_len, motif_len, ref_count, locus.chrom);
 
-  double gt_ll;
-  if (!likelihood_maximizer_->GetGenotypeNegLogLikelihood(allele1, allele2,
-          read_len, motif_len, ref_count, resampled, &gt_ll)){
-    CPPUNIT_FAIL( "Running GetGenotypeNegLogLikelihood failed." );
-  }
+  likelihood_maximizer_->AddEnclosingData(25);
+  likelihood_maximizer_->AddEnclosingData(25);
+  likelihood_maximizer_->AddSpanningData(445);
 
-  // double gt_ll2;
-  // allele1 = 45;
-  // allele2 = 65;
-  // likelihood_maximizer_->Reset();
-  // likelihood_maximizer_->AddSpanningData(test_data2);
-  // likelihood_maximizer_->AddFRRData(test_data3);
-  // if (!likelihood_maximizer_->GetGenotypeNegLogLikelihood(allele1, allele2,
-  //         read_len, motif_len, ref_count, &gt_ll2)){
-  //   CPPUNIT_FAIL( "Running GetGenotypeNegLogLikelihood failed." );
-  // }
-  
-  
-  CPPUNIT_ASSERT_EQUAL(roundf(gt_ll * 1000)/1000, roundf(12.1668285343*1000)/1000);
-  // CPPUNIT_ASSERT_EQUAL(roundf(gt_ll2 * 100)/100, roundf(15.2104894117*100)/100);
-  */
+  double ll_match = 0.0;
+  double ll_mismatch = 0.0;
+  CPPUNIT_ASSERT(likelihood_maximizer_->GetGenotypeNegLogLikelihood(25, 25, resampled, &ll_match));
+  CPPUNIT_ASSERT(likelihood_maximizer_->GetGenotypeNegLogLikelihood(18, 18, resampled, &ll_mismatch));
+  CPPUNIT_ASSERT(std::isfinite(ll_match));
+  CPPUNIT_ASSERT(std::isfinite(ll_mismatch));
+  CPPUNIT_ASSERT(ll_match < ll_mismatch);
 }
 
 void LikelihoodMaximizerTest::test_OptimizeLikelihood() {
-  options.dist_mean = 500;
-  options.dist_sdev = 50;
-  options.flanklen = 3000;
-  options.frr_weight = 0.5;
-  options.enclosing_weight = 1.0;
-  options.spanning_weight = 1.0;
-  options.flanking_weight = 1.0;
-  options.read_len = 100;
-  options.dist_max = 1000;
+  likelihood_maximizer_->Reset();
+  likelihood_maximizer_->SetLocusParams(str_info_, sample_profile_.coverage, read_len, motif_len, ref_count, locus.chrom);
 
-  /*
-  LikelihoodMaximizer* likelihood_maximizer_opt = new LikelihoodMaximizer(options);
-  likelihood_maximizer_opt->Reset();
+  likelihood_maximizer_->AddEnclosingData(25);
+  likelihood_maximizer_->AddEnclosingData(25);
+  likelihood_maximizer_->AddEnclosingData(25);
+  likelihood_maximizer_->SetGridSize(20, 30);
 
-  std::string fastafile = test_dir + "/CACNA1A_5k_region.fa";
-  RefGenome refgenome(fastafile);
-
-  ReadExtractor* read_extractor = new ReadExtractor(options);
-
-  std::string bam_file = test_dir + "/54_nc_40.sorted.bam";
-  std::vector<std::string> files(0);
-  files.push_back(bam_file);
-  BamCramMultiReader* bamreader = new BamCramMultiReader(files, fastafile);
-
-  // Load preflank and postflank to locus
-  if (!refgenome.GetSequence(locus.chrom,
-            locus.start-options.realignment_flanklen-1,
-            locus.start-2,
-            &locus.pre_flank)) {
-    CPPUNIT_FAIL( "Running OptimizeLikelihood failed." );
-  }
-  if (!refgenome.GetSequence(locus.chrom,
-            locus.end,
-            locus.end+options.realignment_flanklen-1,
-            &locus.post_flank)) {
-    CPPUNIT_FAIL( "Running OptimizeLikelihood failed." );
-  }
-
-
-  // Load all read data
-  likelihood_maximizer_opt->Reset();
-  if (!read_extractor->ExtractReads(bamreader, locus, options.regionsize,
-            options.min_match, likelihood_maximizer_opt)) {
-    CPPUNIT_FAIL( "Running OptimizeLikelihood failed." );
-  }
-  // Maximize the likelihood
-  int32_t allele1, allele2;
-  int32_t read_len = options.read_len;
-
-  int32_t ref_count = (int32_t)((locus.end-locus.start+1)/locus.motif.size());
-  double min_negLike;
-  // TODO remake test case using new optimizer function
-  /* 
-  if (!likelihood_maximizer_opt->OptimizeLikelihood(read_len, (int32_t)(locus.motif.size()),
-            ref_count, resampled,
-            &allele1, &allele2, &min_negLike)) {
-    CPPUNIT_FAIL( "Running OptimizeLikelihood failed." );
-    }*/
-  //  CPPUNIT_ASSERT_EQUAL(allele1, 31);
-  //CPPUNIT_ASSERT_EQUAL(allele2, 60);
-  //CPPUNIT_ASSERT_EQUAL(roundf(min_negLike * 100)/100, roundf(1725.53*100)/100); 
+  int32_t allele1 = -1;
+  int32_t allele2 = -1;
+  double min_neg_like = 0.0;
+  CPPUNIT_ASSERT(likelihood_maximizer_->OptimizeLikelihood(false, 2, 0, 0.0, &allele1, &allele2, &min_neg_like));
+  CPPUNIT_ASSERT_EQUAL(25, allele1);
+  CPPUNIT_ASSERT_EQUAL(25, allele2);
+  CPPUNIT_ASSERT(std::isfinite(min_neg_like));
 }
-
-

@@ -60,9 +60,9 @@ enum SingleReadType {
   SR_ENCLOSING = 2,
   SR_IRR = 3,
   SR_UM_POT_IRR = 4, // Unmapped potential IRR
-  SR_MAPPED_AFTER = 5,	// Not used TODO delete
+  SR_MAPPED_AFTER = 5,	// Reserved (unused)
   SR_UNKNOWN = 6,
-  SR_NOT_FOUND = 7,		// Not used TODO delete
+  SR_NOT_FOUND = 7,		// Reserved (unused)
 };
 
 enum FlankMatchState{
@@ -145,14 +145,15 @@ bool calc_score(const int32_t& i, const int32_t& j,
 		std::vector<std::vector<int32_t> >* score_matrix);
 
 bool classify_realigned_read(const std::string& seq,
-			     const std::string& motif,
-			     const int32_t& start_pos,
-			     const int32_t& end_pos,
-			     const int32_t& nCopy,
-			     const int32_t& score,
-			     const int32_t& prefix_length,
-			     const int32_t& min_match,
-			     const bool& isMapped,
+				     const std::string& motif,
+				     const int32_t& start_pos,
+				     const int32_t& end_pos,
+				     const int32_t& nCopy,
+				     const int32_t& score,
+				     const double& match_perc_threshold,
+				     const int32_t& prefix_length,
+				     const int32_t& min_match,
+				     const bool& isMapped,
 			     const std::string& pre_flank,
 			     const std::string& post_flank,
 			     const FlankMatchState& fm_pref,

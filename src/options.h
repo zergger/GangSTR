@@ -87,8 +87,13 @@ class Options {
   int32_t ploidy;
   // Number of bootsrap resamples
   int32_t num_boot_samp;
+  // Bootstrap alpha (two-sided tail probability)
+  double bootstrap_alpha;
   // Read probability only mode (ignore class probability)
   bool read_prob_mode;
+  // NLOPT relative tolerance controls
+  double nlopt_xtol_rel_2d;
+  double nlopt_xtol_rel_1d;
   // Output bootstrap samples to file
   bool output_bootstrap;
   // Output debug info for reads
@@ -103,12 +108,18 @@ class Options {
   bool hist_mode;
   // number of rescue attempts
   int32_t rescue_count;
+  // Minimum match fraction for rescued reads
+  double rescue_match_perc;
   // Minimum number of reads per sample for successfull calculation of coverage
   int32_t min_reads_per_sample;
   // Maximum number of processed reads per sample (to avoid massive coverage regions like telomeres)
   int32_t max_processed_reads_per_sample;
+  // Max spanning data value; 0 disables the filter
+  int32_t max_spanning_data_value;
   // Skip calculation of qscore
   bool skip_qscore;
+  // Minimum match fraction for realignment classification
+  double realign_match_perc;
 };
 
 #endif  // SRC_OPTIONS_H__

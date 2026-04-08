@@ -68,7 +68,7 @@ do
 	-d -h -l 1"
 done | xargs -P${NUMPROC} -I% -n 1 sh -c "%"
 
-# TODO implement here any other filters we would like to have on the reference
+# Hook: add any additional filters for the reference here
 for chrom in $(seq 1 22)
 do
     cat ${tmpdir}/chr${chrom}.fa.2.7.7.80.10.24.100.dat | \

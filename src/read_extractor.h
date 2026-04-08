@@ -62,12 +62,6 @@ class ReadExtractor {
 			std::map<std::string, ReadPair>* read_pairs,
 			bool custom_read_groups);
 
-  // Implemented in BamInfoExtract. TODO delete
-  // // Find insert size distribution
-  // bool ComputeInsertSizeDistribution(BamCramMultiReader* bamreader,
-  //      const Locus& locus,
-  //      double* mean, double* std_dev, int32_t* read_len);
-
   // Check if read should be discarded
   bool FindDiscardedRead(BamAlignment alignment,
 			 const int32_t& chrom_ref_id,

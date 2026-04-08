@@ -9,7 +9,6 @@ set(GANGSTR_SOURCES
     genotyper.cpp
     likelihood_maximizer.cpp
     locus.cpp
-    main_gangstr.cpp
     mathops.cpp
     options.cpp
     read_class.cpp
@@ -32,3 +31,81 @@ set(GANGSTR_SOURCES
 add_library(gstr ${GANGSTR_SOURCES})
 target_link_libraries(gstr ${htslib_static} ${zlib_static} ${nlopt_static})
 target_include_directories(gstr PUBLIC "${PROJECT_BINARY_DIR}")
+
+if(BUILD_TESTING)
+  find_package(PkgConfig QUIET)
+  if(PkgConfig_FOUND)
+    pkg_check_modules(CPPUNIT QUIET cppunit)
+  endif()
+  find_path(CPPUNIT_INCLUDE_DIR cppunit/TestCase.h
+      /usr/include
+      /usr/local/include
+  )
+  find_library(CPPUNIT_LIBRARY cppunit
+      /usr/lib
+      /usr/lib/x86_64-linux-gnu
+      /usr/local/lib
+  )
+
+  add_executable(gangstr_integration_smoke
+      tests/gangstr_integration_smoke.cpp
+  )
+  target_link_directories(gangstr_integration_smoke PRIVATE
+      ${CMAKE_BINARY_DIR}/src
+      ${CMAKE_BINARY_DIR}/thirdparty/zlib/lib
+      ${CMAKE_BINARY_DIR}/thirdparty/gsl/lib
+      ${CMAKE_BINARY_DIR}/thirdparty/nlopt/lib64
+      ${CMAKE_BINARY_DIR}/thirdparty/nlopt/lib
+      ${CMAKE_BINARY_DIR}/thirdparty/htslib/lib
+  )
+  target_link_libraries(gangstr_integration_smoke PRIVATE gstr Threads::Threads hts z m nlopt gsl)
+  target_include_directories(gangstr_integration_smoke PRIVATE "${PROJECT_BINARY_DIR}")
+  add_test(NAME gangstr_integration_smoke COMMAND gangstr_integration_smoke)
+
+  if(CPPUNIT_FOUND OR (CPPUNIT_INCLUDE_DIR AND CPPUNIT_LIBRARY))
+    if(CMAKE_CXX_COMPILER MATCHES "conda")
+      message(WARNING "Skipping legacy CPPUNIT suite under the Conda toolchain; build with CC=/usr/bin/gcc CXX=/usr/bin/g++ to run gangstr_cppunit.")
+    else()
+      add_executable(gangstr_cppunit
+          tests/main_test.cpp
+          tests/ReadClass_test.cpp
+          tests/LikelihoodMaximizer_test.cpp
+          tests/ReadExtractor_test.cpp
+      )
+      target_compile_definitions(gangstr_cppunit PRIVATE
+          GANGSTR_TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/unused/tests"
+      )
+      target_link_directories(gangstr_cppunit PRIVATE
+          ${CMAKE_BINARY_DIR}/src
+          ${CMAKE_BINARY_DIR}/thirdparty/zlib/lib
+          ${CMAKE_BINARY_DIR}/thirdparty/gsl/lib
+          ${CMAKE_BINARY_DIR}/thirdparty/nlopt/lib64
+          ${CMAKE_BINARY_DIR}/thirdparty/nlopt/lib
+          ${CMAKE_BINARY_DIR}/thirdparty/htslib/lib
+      )
+      target_include_directories(gangstr_cppunit PRIVATE
+          "${PROJECT_BINARY_DIR}"
+          ${CPPUNIT_INCLUDE_DIRS}
+          ${CPPUNIT_INCLUDE_DIR}
+      )
+      target_link_libraries(gangstr_cppunit PRIVATE
+          gstr
+          Threads::Threads
+          ${CPPUNIT_LIBRARIES}
+          ${CPPUNIT_LIBRARY}
+          hts
+          z
+          m
+          nlopt
+          gsl
+      )
+      target_link_directories(gangstr_cppunit PRIVATE
+          ${CPPUNIT_LIBRARY_DIRS}
+          /usr/lib
+          /usr/lib/x86_64-linux-gnu
+          /usr/local/lib
+      )
+      add_test(NAME gangstr_cppunit COMMAND gangstr_cppunit)
+    endif()
+  endif()
+endif()

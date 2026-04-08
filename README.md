@@ -28,8 +28,8 @@ For a list of TR references available, see [references](#references) below.
 
 <a name="prereqs"></a>
 ## Prerequisites
-* A recent version of `C`/`C++` compiler supporting `C++11` standard
-* `CMake` version `3.16` or above
+* A recent version of `C`/`C++` compiler supporting `C++17` standard
+* `CMake` version `3.10` or above
 * The following development files in the build system: `libz-dev`, `libbz2-dev`, and `liblzma-dev` (required by htslib)
 
 <a name="install"></a>
@@ -134,15 +134,21 @@ Advanced parameters for likelihood model:
 * **`--flankweight <float>`** Reset weight for Flanking class in likelihood model. (default 1.0)
 * **`--ploidy [1,2]`** Haploid (1) or diploid (2) genotyping. (default 2)
 * **`--skipofftarget`** Skip off target regions included in the regions file.
-* **`--readprobmode`** Only use read probabilities in likelihood model. (ignore class probability)
+* **`--read-prob-mode`** Only use read probabilities in likelihood model. (ignore class probability)
 * **`--numbstrap <int>`** Number of bootstrap samples for calculating confidence intervals. (default 100)
-* **`--grid-theshold <int>`** Use optimization rather than grid search to find MLE if search space (grid) contains more alleles than this threshold. Default: 10000
+* **`--bootstrap-alpha <float>`** Bootstrap confidence interval two-sided tail probability. (default 0.05)
+* **`--grid-threshold <int>`** Use optimization rather than grid search to find MLE if search space (grid) contains more alleles than this threshold. Default: 10000
 * **`--rescue-count <int>`** Number of regions that GangSTR attempts to rescue mates from (excluding off-target regions). Default: 0
+* **`--rescue-match-perc <float>`** Minimum match fraction to accept rescued reads. (default 0.8)
 * **`--max-proc-read <int>`** Maximum number of processed reads per sample before a region is skipped.
+* **`--opt-xtol-rel-2d <float>`** Relative tolerance for 2D optimizer. (default 0.00005)
+* **`--opt-xtol-rel-1d <float>`** Relative tolerance for 1D optimizer. (default 0.0005)
 
 Parameters for local realignment:
-* **`--minscore <int>`** Minimun alignment score for accepting reads (default 75).
+* **`--minscore <int>`** Minimum alignment score for accepting reads (default 75).
 * **`--minmatch <int>`** Minimum matching basepairs required at the edge of the repeat region to accept flanking and enclosing reads (default 5).
+* **`--realign-match-perc <float>`** Minimum match fraction for realignment classification. (default 0.9)
+* **`--max-spanning-data <int>`** Maximum spanning data value; 0 disables the filter. (default 0)
 
 Stutter model parameters:
 * **`--stutterup <float>`** Stutter insertion probability (default 0.05)
@@ -332,5 +338,3 @@ GangSTR callsets on publicly available datasets.
 You can call TRs on chrX and chrY using a combination of `--bam-samps` and `--samp-sex`. `--samp-sex` is a list of sex assignments ('F' or 'M') for the list of samples in `--bam-samps`, in the same order. For example if sample1 and sample2 are Male and Female respectively, `--bam-samps sample1,sample2 --samp-sex M,F` as input option.
 
 Currently, GangSTR is not capable of extracting sample sex automatically.
-
-
