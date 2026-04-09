@@ -74,7 +74,9 @@ class BamAlignment {
   BamAlignment(const BamAlignment &aln)
     : bases_(aln.bases_), qualities_(aln.qualities_), cigar_ops_(aln.cigar_ops_), file_(aln.file_){
     b_ = bam_init1();
-    bam_copy1(b_, aln.b_);
+    if (bam_copy1(b_, aln.b_) == NULL) {
+      PrintMessageDieOnError("Failed to copy BAM alignment", M_ERROR, false);
+    }
     built_     = aln.built_;
     length_    = aln.length_;
     pos_       = aln.pos_;
@@ -82,7 +84,12 @@ class BamAlignment {
   }
 
   BamAlignment& operator=(const BamAlignment& aln){
-    bam_copy1(b_, aln.b_);
+    if (this == &aln) {
+      return *this;
+    }
+    if (bam_copy1(b_, aln.b_) == NULL) {
+      PrintMessageDieOnError("Failed to copy BAM alignment", M_ERROR, false);
+    }
     file_      = aln.file_;
     built_     = aln.built_;
     length_    = aln.length_;
@@ -417,12 +424,14 @@ class BamHeader {
     if (ref_id >= 0 && ref_id < (int)seq_names_.size())
       return seq_names_[ref_id];
     PrintMessageDieOnError("Invalid reference ID provided to ref_name() function", M_ERROR, false);
+    return "*";
   }
 
   uint32_t ref_length(int32_t ref_id) const {
     if (ref_id >= 0 && ref_id < (int)seq_lengths_.size())
       return seq_lengths_[ref_id];
     PrintMessageDieOnError("Invalid reference ID provided to ref_length() function", M_ERROR, false);
+    return 0;
   }
 
   ~BamHeader(){
@@ -576,6 +585,7 @@ class BamCramMultiReader {
     if (file_index >= 0 && file_index < (int)bam_readers_.size())
       return bam_readers_[file_index]->bam_header(); 
     PrintMessageDieOnError("Invalid file index provided to bam_header() function", M_ERROR, false);
+    return NULL;
   }
 
   bool SetRegion(const std::string& chrom, int32_t start, int32_t end);

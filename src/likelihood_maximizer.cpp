@@ -27,13 +27,29 @@ along with GangSTR.  If not, see <http://www.gnu.org/licenses/>.
 #include "src/realignment.h" // for MARGIN
 #include <iostream>
 #include <algorithm>
+#include <exception>
 using namespace std;
 
+
+void LikelihoodMaximizer::SetStutterModel(const HipStutterModel* model) {
+    stutter_model_ = model;
+}
+
+void LikelihoodMaximizer::SetStutterEnclosingWeightScale(const double scale) {
+    stutter_enclosing_weight_scale_ = scale;
+}
+
+void LikelihoodMaximizer::SetStutterFlankingWeightScale(const double scale) {
+    stutter_flanking_weight_scale_ = scale;
+}
 
 LikelihoodMaximizer::LikelihoodMaximizer(const Options& _options, const SampleProfile& sp,
 					 const int32_t& read_len, const std::string _sex) : sex(_sex) {
 
-  options = &_options; // TODO remove options
+  options = &_options; // Options are owned by the caller and outlive this instance.
+  stutter_model_ = nullptr;
+  stutter_enclosing_weight_scale_ = 1.0;
+  stutter_flanking_weight_scale_ = 1.0;
   local_ploidy = 2;
   enclosing_class_.SetGlobalParams(sp, options->flanklen, options->read_prob_mode, options->hist_mode);
   frr_class_.SetGlobalParams(sp, options->flanklen, options->read_prob_mode, options->hist_mode);
@@ -217,8 +233,10 @@ bool LikelihoodMaximizer::GetConfidenceInterval(const int32_t& all1,
 						double* lob1, double* hib1, double* lob2, double* hib2,
 						double* a1_se, double* a2_se) {
   int32_t allele1, allele2;
-  // TODO allow change of alpha
-  double alpha = 0.05;   // Tail error on each end
+  double alpha = options->bootstrap_alpha;   // Tail error on each end
+  if (alpha <= 0.0 || alpha >= 1.0){
+    return false;
+  }
   if (all1 > all2){
     allele2 = all1;
     allele1 = all2;
@@ -235,32 +253,38 @@ bool LikelihoodMaximizer::GetConfidenceInterval(const int32_t& all1,
   for (int i = 0; i < num_boot_samp + 1; i++){
     ResampleReadPool();
     if (local_ploidy == 2){
-      OptimizeLikelihood(true, 1, allele1,
-			 offtarget_share, 
-			 &boot_al2_1, &boot_al2_2, &min_negLike);
-      OptimizeLikelihood(true, 1, allele2,
-			 offtarget_share, 
-			 &boot_al1_1, &boot_al1_2, &min_negLike);
+      if (!OptimizeLikelihood(true, 1, allele1,
+			      offtarget_share, 
+			      &boot_al2_1, &boot_al2_2, &min_negLike)) {
+	return false;
+      }
+      if (!OptimizeLikelihood(true, 1, allele2,
+			      offtarget_share, 
+			      &boot_al1_1, &boot_al1_2, &min_negLike)) {
+	return false;
+      }
       if (boot_al1_1 == allele2)
 	boot_al1 = boot_al1_2;
       else if (boot_al1_2 == allele2)
 	boot_al1 = boot_al1_1;
       else{
-	cerr<< "Error running bootstrap\n";
+	return false;
       }
       if (boot_al2_1 == allele1)
 	boot_al2 = boot_al2_2;
       else if (boot_al2_2 == allele1)
 	boot_al2 = boot_al2_1;
       else{
-	std::cerr<< "Error running likelihood optimization\n";	
+	return false;
       }
       double gt_ll1, gt_ll2;
     }
     else{ // haploid
-      OptimizeLikelihood(true, 1, 0,
-			 offtarget_share, 
-			 &boot_al1, &boot_al2, &min_negLike);
+      if (!OptimizeLikelihood(true, 1, 0,
+			      offtarget_share, 
+			      &boot_al1, &boot_al2, &min_negLike)) {
+	return false;
+      }
     }
 
     small_alleles.push_back(boot_al1);
@@ -294,7 +318,7 @@ bool LikelihoodMaximizer::GetConfidenceInterval(const int32_t& all1,
   for (int i =0; i <= num_boot_samp; i++)
     acum += double(large_alleles[i] - mean_lg_alleles) * double(large_alleles[i] - mean_lg_alleles);
   *a2_se = std::sqrt(acum / double(num_boot_samp + 1));
-  return true;  // TODO add return false cases
+  return true;
 }
 
 std::size_t LikelihoodMaximizer::GetEnclosingDataSize() {
@@ -329,6 +353,259 @@ std::string LikelihoodMaximizer::GetFlankingReadDictStr() {
     return "NULL";
   else
     return ret_str;
+}
+
+bool LikelihoodMaximizer::ShouldApplyStutterModelForCall(const int32_t& allele1,
+                                                         const int32_t& allele2,
+                                                         const int32_t& max_adjacent_diff,
+                                                         const int32_t& min_adjacent_count) {
+  int32_t small_allele = std::min(allele1, allele2);
+  int32_t small_count = enclosing_class_.GetAlleleCount(small_allele);
+  int32_t neighbor_count = enclosing_class_.GetAlleleCount(small_allele + 1);
+  if (small_count >= min_adjacent_count &&
+      neighbor_count >= min_adjacent_count &&
+      std::abs(small_count - neighbor_count) <= max_adjacent_diff) {
+    return true;
+  }
+  if (ShouldApplyStutterModelForFlankingCall(allele1,
+                                             allele2,
+                                             max_adjacent_diff,
+                                             min_adjacent_count)) {
+    return true;
+  }
+  if (ShouldApplyStutterModelForLargeSideProbeCall(allele1,
+                                                   allele2,
+                                                   min_adjacent_count)) {
+    return true;
+  }
+  if (ShouldApplyStutterModelForUpperLargeSideProbeCall(allele1,
+                                                        allele2,
+                                                        min_adjacent_count)) {
+    return true;
+  }
+  if (ShouldApplyStutterModelForSpanningCall(allele1, allele2)) {
+    return true;
+  }
+  return ShouldApplyStutterModelForFRRCall(allele1, allele2);
+}
+
+bool LikelihoodMaximizer::ShouldApplyStutterModelForFlankingCall(const int32_t& allele1,
+                                                                 const int32_t& allele2,
+                                                                 const int32_t& max_adjacent_diff,
+                                                                 const int32_t& min_adjacent_count) {
+  const int32_t large_allele = std::max(allele1, allele2);
+  if (large_allele <= 1) {
+    return false;
+  }
+  const int32_t bound_count = flanking_class_.GetDataCount(large_allele);
+  const int32_t neighbor_count = flanking_class_.GetDataCount(large_allele - 1);
+  if (bound_count < min_adjacent_count || neighbor_count < min_adjacent_count) {
+    return false;
+  }
+  return std::abs(bound_count - neighbor_count) <= max_adjacent_diff;
+}
+
+bool LikelihoodMaximizer::ShouldApplyStutterModelForLargeSideProbeCall(
+    const int32_t& allele1,
+    const int32_t& allele2,
+    const int32_t& min_adjacent_count) {
+  const int32_t small_allele = std::min(allele1, allele2);
+  const int32_t large_allele = std::max(allele1, allele2);
+  if (large_allele <= 2) {
+    return false;
+  }
+
+  const int32_t small_count = enclosing_class_.GetAlleleCount(small_allele);
+  const int32_t next_small_count = enclosing_class_.GetAlleleCount(small_allele + 1);
+  if (small_count < 2 * min_adjacent_count || next_small_count < min_adjacent_count) {
+    return false;
+  }
+  if (small_count > 3 * next_small_count) {
+    return false;
+  }
+
+  int32_t near_large_support = 0;
+  for (int32_t bound = std::max<int32_t>(large_allele - 2, 1);
+       bound <= large_allele;
+       ++bound) {
+    near_large_support += flanking_class_.GetDataCount(bound);
+  }
+  return near_large_support >= 3 * min_adjacent_count;
+}
+
+bool LikelihoodMaximizer::ShouldApplyStutterModelForUpperLargeSideProbeCall(
+    const int32_t& allele1,
+    const int32_t& allele2,
+    const int32_t& min_adjacent_count) {
+  const int32_t small_allele = std::min(allele1, allele2);
+  const int32_t large_allele = std::max(allele1, allele2);
+  const int32_t small_count = enclosing_class_.GetAlleleCount(small_allele);
+  const int32_t next_small_count = enclosing_class_.GetAlleleCount(small_allele + 1);
+  if (small_count < 2 * min_adjacent_count || next_small_count < min_adjacent_count) {
+    return false;
+  }
+  if (small_count > 3 * next_small_count) {
+    return false;
+  }
+
+  const int32_t upper_large_p1 = flanking_class_.GetDataCount(large_allele + 1);
+  const int32_t upper_large_p2 = flanking_class_.GetDataCount(large_allele + 2);
+  const int32_t upper_large_support = upper_large_p1 + upper_large_p2;
+  return upper_large_support >= 2 * min_adjacent_count;
+}
+
+bool LikelihoodMaximizer::GetLocalNeighborNegLikelihoodDelta(
+    const int32_t& allele1,
+    const int32_t& allele2,
+    const int32_t& alt_allele1,
+    const int32_t& alt_allele2,
+    double* delta) {
+  const int32_t base_a1 = std::min(allele1, allele2);
+  const int32_t base_a2 = std::max(allele1, allele2);
+  const int32_t alt_a1 = std::min(alt_allele1, alt_allele2);
+  const int32_t alt_a2 = std::max(alt_allele1, alt_allele2);
+  if (alt_a1 <= 0 || alt_a2 <= 0) {
+    *delta = 1e9;
+    return true;
+  }
+  double base_ll = 0.0;
+  double alt_ll = 0.0;
+  if (!GetGenotypeNegLogLikelihood(base_a1, base_a2, false, &base_ll)) {
+    return false;
+  }
+  if (!GetGenotypeNegLogLikelihood(alt_a1, alt_a2, false, &alt_ll)) {
+    return false;
+  }
+  *delta = alt_ll - base_ll;
+  return true;
+}
+
+bool LikelihoodMaximizer::GetLargeSideNeighborDeltas(const int32_t& allele1,
+                                                     const int32_t& allele2,
+                                                     double* delta_down,
+                                                     double* delta_up) {
+  const int32_t small_allele = std::min(allele1, allele2);
+  const int32_t large_allele = std::max(allele1, allele2);
+  if (!GetLocalNeighborNegLikelihoodDelta(small_allele,
+                                          large_allele,
+                                          small_allele,
+                                          large_allele - 1,
+                                          delta_down)) {
+    return false;
+  }
+  return GetLocalNeighborNegLikelihoodDelta(small_allele,
+                                            large_allele,
+                                            small_allele,
+                                            large_allele + 1,
+                                            delta_up);
+}
+
+bool LikelihoodMaximizer::ShouldApplyStutterModelForSpanningCall(
+    const int32_t& allele1,
+    const int32_t& allele2) {
+  static const int32_t kMinSpanningReads = 2;
+  static const double kMaxLargeNeighborDelta = 1.5;
+  const int32_t small_allele = std::min(allele1, allele2);
+  const int32_t large_allele = std::max(allele1, allele2);
+  if (spanning_class_.GetDataSize() < static_cast<size_t>(kMinSpanningReads)) {
+    return false;
+  }
+  if (large_allele <= small_allele + 1) {
+    return false;
+  }
+  double delta_down = 1e9;
+  double delta_up = 1e9;
+  if (!GetLargeSideNeighborDeltas(allele1, allele2, &delta_down, &delta_up)) {
+    return false;
+  }
+  return std::min(delta_down, delta_up) <= kMaxLargeNeighborDelta;
+}
+
+bool LikelihoodMaximizer::ShouldApplyStutterModelForFRRCall(
+    const int32_t& allele1,
+    const int32_t& allele2) {
+  static const int32_t kMinFRRReads = 2;
+  static const double kMaxLargeNeighborDelta = 2.0;
+  const int32_t small_allele = std::min(allele1, allele2);
+  const int32_t large_allele = std::max(allele1, allele2);
+  if (frr_class_.GetDataSize() < static_cast<size_t>(kMinFRRReads)) {
+    return false;
+  }
+  if (large_allele <= std::max(ref_count, small_allele + 1)) {
+    return false;
+  }
+  double delta_down = 1e9;
+  double delta_up = 1e9;
+  if (!GetLargeSideNeighborDeltas(allele1, allele2, &delta_down, &delta_up)) {
+    return false;
+  }
+  return std::min(delta_down, delta_up) <= kMaxLargeNeighborDelta;
+}
+
+std::string LikelihoodMaximizer::GetStutterGateDebugSummary(
+    const int32_t& allele1,
+    const int32_t& allele2,
+    const int32_t& max_adjacent_diff,
+    const int32_t& min_adjacent_count) {
+  const int32_t small_allele = std::min(allele1, allele2);
+  const int32_t large_allele = std::max(allele1, allele2);
+  const int32_t small_count = enclosing_class_.GetAlleleCount(small_allele);
+  const int32_t next_small_count = enclosing_class_.GetAlleleCount(small_allele + 1);
+  const int32_t flank_large_m2 = (large_allele > 2) ? flanking_class_.GetDataCount(large_allele - 2) : 0;
+  const int32_t flank_large_m1 = (large_allele > 1) ? flanking_class_.GetDataCount(large_allele - 1) : 0;
+  const int32_t flank_large = flanking_class_.GetDataCount(large_allele);
+  const int32_t flank_large_p1 = flanking_class_.GetDataCount(large_allele + 1);
+  const int32_t flank_large_p2 = flanking_class_.GetDataCount(large_allele + 2);
+  const int32_t near_large_support = flank_large_m2 + flank_large_m1 + flank_large;
+  const int32_t upper_large_support = flank_large_p1 + flank_large_p2;
+  double large_delta_down = 1e9;
+  double large_delta_up = 1e9;
+  GetLargeSideNeighborDeltas(allele1, allele2, &large_delta_down, &large_delta_up);
+
+  const bool enclosing_gate =
+      small_count >= min_adjacent_count &&
+      next_small_count >= min_adjacent_count &&
+      std::abs(small_count - next_small_count) <= max_adjacent_diff;
+  const bool flanking_gate =
+      large_allele > 1 &&
+      flank_large >= min_adjacent_count &&
+      flank_large_m1 >= min_adjacent_count &&
+      std::abs(flank_large - flank_large_m1) <= max_adjacent_diff;
+  const bool large_probe_gate =
+      large_allele > 2 &&
+      small_count >= 2 * min_adjacent_count &&
+      next_small_count >= min_adjacent_count &&
+      small_count <= 3 * next_small_count &&
+      near_large_support >= 3 * min_adjacent_count;
+  const bool upper_large_probe_gate =
+      small_count >= 2 * min_adjacent_count &&
+      next_small_count >= min_adjacent_count &&
+      small_count <= 3 * next_small_count &&
+      upper_large_support >= 2 * min_adjacent_count;
+  const bool spanning_gate = ShouldApplyStutterModelForSpanningCall(allele1, allele2);
+  const bool frr_gate = ShouldApplyStutterModelForFRRCall(allele1, allele2);
+
+  std::stringstream ss;
+  ss << "small=" << small_allele
+     << " small_count=" << small_count
+     << " small+1_count=" << next_small_count
+     << " large=" << large_allele
+     << " span_reads=" << spanning_class_.GetDataSize()
+     << " frr_reads=" << frr_class_.GetDataSize()
+     << " flank[" << (large_allele - 2) << "," << (large_allele - 1) << "," << large_allele << "]="
+     << flank_large_m2 << "," << flank_large_m1 << "," << flank_large
+     << " upper_flank[" << (large_allele + 1) << "," << (large_allele + 2) << "]="
+     << flank_large_p1 << "," << flank_large_p2
+     << " near_large_support=" << near_large_support
+     << " upper_large_support=" << upper_large_support
+     << " large_neighbor_delta=[" << large_delta_down << "," << large_delta_up << "]"
+     << " gates(enclose=" << (enclosing_gate ? "1" : "0")
+     << ",flank=" << (flanking_gate ? "1" : "0")
+     << ",large_probe=" << (large_probe_gate ? "1" : "0")
+     << ",upper_large_probe=" << (upper_large_probe_gate ? "1" : "0")
+     << ",span_surface=" << (spanning_gate ? "1" : "0")
+     << ",frr_surface=" << (frr_gate ? "1" : "0") << ")";
+  return ss.str();
 }
 
 bool LikelihoodMaximizer::GetNegLikelihoodSurface(const int32_t& a_lo,
@@ -404,13 +681,13 @@ bool LikelihoodMaximizer::GetGenotypeNegLogLikelihood(const int32_t& allele1,
     					  local_ploidy, &span_ll);
     enclosing_class_.GetClassLogLikelihood(allele1, allele2, 
 					     read_len, motif_len, ref_count, 
-					   local_ploidy, &encl_ll);
+					   local_ploidy, stutter_model_, &encl_ll);
 
     // flanking class overloads GetClassLogLikelihood function
     flanking_class_.FlankingClass::GetClassLogLikelihood(allele1, allele2, 
     							 read_len, motif_len, ref_count, 
-    							 local_ploidy, &flank_ll);
-    // TODO Substituting these lines changes optimization result. Find out why?!
+    							 local_ploidy, stutter_model_, &flank_ll);
+    // NOTE: coverage likelihood terms are sensitive; keep current behavior unless revalidated.
     //if ((options->coverage > 0) && (frr_class_.GetDataSize() > 0)){
     
     if (use_cov && obj_cov > 0 && frr_count > 0){
@@ -442,11 +719,11 @@ bool LikelihoodMaximizer::GetGenotypeNegLogLikelihood(const int32_t& allele1,
 						    local_ploidy, &span_ll);
     resampled_enclosing_class_.GetClassLogLikelihood(allele1, allele2, 
 						     read_len, motif_len, ref_count, 
-						     local_ploidy, &encl_ll);
+						     local_ploidy, stutter_model_, &encl_ll);
     // flanking class overloads GetClassLogLikelihood function
     resampled_flanking_class_.FlankingClass::GetClassLogLikelihood(allele1, allele2, 
 								   read_len, motif_len, ref_count, 
-								   local_ploidy, &flank_ll); 
+								   local_ploidy, stutter_model_, &flank_ll); 
     
     if (use_cov && obj_cov > 0 && frr_count > 0){
       resampled_frr_class_.GetCountLogLikelihood(allele1, 
@@ -464,8 +741,8 @@ bool LikelihoodMaximizer::GetGenotypeNegLogLikelihood(const int32_t& allele1,
   factor = 1.0; // Factor is NOT applied to the count term 
   *gt_ll = -1*(1.0 / factor * (options->frr_weight * frr_ll +
 			       options->spanning_weight * span_ll +
-			       options->enclosing_weight * encl_ll + 
-			       options->flanking_weight * flank_ll) + 
+			       (options->enclosing_weight * stutter_enclosing_weight_scale_ * encl_ll) + 
+			       (options->flanking_weight * stutter_flanking_weight_scale_ * flank_ll)) + 
   	       count_weight * frr_count_ll);
   return true;
 }
@@ -550,17 +827,21 @@ void LikelihoodMaximizer::InferAlleleList(std::vector<int32_t>* allele_list,
 	   allele_it != allele_list->end();
 	   allele_it++) {	
 	// 1-D optimization fixing each enclosing allele
-	nlopt_1D_optimize(read_len, motif_len, ref_count, 
-			  lower_bound, upper_bound, resampled, 
-			  options->seed, this, *allele_it, &a1, &result, &minf);
-	sublist.push_back(a1);
+	if (nlopt_1D_optimize(read_len, motif_len, ref_count, 
+			      lower_bound, upper_bound, resampled, 
+			      options->seed, options->nlopt_xtol_rel_1d, this,
+			      *allele_it, &a1, &result, &minf)) {
+	  sublist.push_back(a1);
+	}
       }
       // 2D opt
-      nlopt_2D_optimize(read_len, motif_len, ref_count, 
-			lower_bound, upper_bound, resampled, 
-			options->seed, this, &a1, &a2, &result, &minf);
-      sublist.push_back(a1);
-      sublist.push_back(a2);
+      if (nlopt_2D_optimize(read_len, motif_len, ref_count, 
+			    lower_bound, upper_bound, resampled, 
+			    options->seed, options->nlopt_xtol_rel_2d, this,
+			    &a1, &a2, &result, &minf)) {
+	sublist.push_back(a1);
+	sublist.push_back(a2);
+      }
       for (std::vector<int32_t>::iterator subl_it = sublist.begin();
 	   subl_it != sublist.end();
 	   subl_it++) {
@@ -569,10 +850,12 @@ void LikelihoodMaximizer::InferAlleleList(std::vector<int32_t>* allele_list,
 	}
       }
     } else if (func_ploidy == 1) {
-      nlopt_1D_optimize(read_len, motif_len, ref_count, 
-			lower_bound, upper_bound, resampled, 
-			options->seed, this, fix_allele, &a1, &result, &minf);
-      allele_list->push_back(a1);
+      if (nlopt_1D_optimize(read_len, motif_len, ref_count, 
+			    lower_bound, upper_bound, resampled, 
+			    options->seed, options->nlopt_xtol_rel_1d, this,
+			    fix_allele, &a1, &result, &minf)) {
+	allele_list->push_back(a1);
+      }
     }
   }
 }
@@ -685,11 +968,17 @@ bool LikelihoodMaximizer::OptimizeLikelihood(const bool& resampled, const int32_
   */
   
   if (func_ploidy == 2) {
-    findBestAlleleListTuple(allele_list, func_ploidy, resampled, 0, 
-			    allele1, allele2, min_negLike);
+    if (!findBestAlleleListTuple(allele_list, func_ploidy, resampled, 0, 
+				 allele1, allele2, min_negLike)) {
+      return false;
+    }
   } else if (func_ploidy == 1) {
-    findBestAlleleListTuple(allele_list, func_ploidy, resampled, fix_allele, 
-			    allele1, allele2, min_negLike);    
+    if (!findBestAlleleListTuple(allele_list, func_ploidy, resampled, fix_allele, 
+				 allele1, allele2, min_negLike)) {
+      return false;
+    }
+  } else {
+    return false;
   }
   return true;
 }
@@ -699,8 +988,12 @@ bool LikelihoodMaximizer::findBestAlleleListTuple(std::vector<int32_t> allele_li
 						  int32_t ovwr_ploidy,
 						  bool resampled, int32_t fix_allele,
 						  int32_t* allele1, int32_t* allele2, double* min_negLike) {
+  if (allele_list.empty()) {
+    return false;
+  }
   double gt_ll;
   *min_negLike = 1000000;
+  bool found = false;
   int32_t best_a1 = 0, best_a2 = 0;
   int32_t func_ploidy; 
   if (ovwr_ploidy == -1){
@@ -719,13 +1012,16 @@ bool LikelihoodMaximizer::findBestAlleleListTuple(std::vector<int32_t> allele_li
             a2_it != allele_list.end();
             a2_it++){
 	if (*a2_it < *a1_it) continue; // want a1 the smaller allele
-        GetGenotypeNegLogLikelihood(*a1_it, *a2_it, resampled, &gt_ll);
+        if (!GetGenotypeNegLogLikelihood(*a1_it, *a2_it, resampled, &gt_ll)) {
+          continue;
+        }
         //if (!resampled)
 	//  cerr<<endl<<*a1_it<<"\t"<<*a2_it<<"\t"<<gt_ll<<endl;
 	if (gt_ll < *min_negLike){
 	  *min_negLike = gt_ll;
 	  best_a1 = *a1_it;
 	  best_a2 = *a2_it;
+	  found = true;
 	}
       }
     }
@@ -735,18 +1031,24 @@ bool LikelihoodMaximizer::findBestAlleleListTuple(std::vector<int32_t> allele_li
     for (std::vector<int32_t>::iterator a1_it = allele_list.begin();
             a1_it != allele_list.end();
             a1_it++){
-      GetGenotypeNegLogLikelihood(*a1_it, fix_allele, resampled, &gt_ll);
+      if (!GetGenotypeNegLogLikelihood(*a1_it, fix_allele, resampled, &gt_ll)) {
+        continue;
+      }
       // cerr<<">> "<<fix_allele<<"\t"<<*a1_it<<"\t"<<gt_ll<<endl;
       if (gt_ll < *min_negLike){
         *min_negLike = gt_ll;
         best_a1 = *a1_it;
+        found = true;
       }
     }
   }
   
+  if (!found) {
+    return false;
+  }
   *allele1 = best_a1;
   *allele2 = best_a2;
-  return true;    // TODO add false
+  return true;
 }
 
 LikelihoodMaximizer::~LikelihoodMaximizer() {
@@ -792,12 +1094,15 @@ double nloptNegLikelihood(unsigned n, const double *x, double *grad, void *data)
 bool nlopt_2D_optimize(const int32_t& read_len, const int32_t& motif_len,
 		       const int32_t& ref_count, const int32_t& lower_bound,
 		       const int32_t& upper_bound, const bool& resampled, 
-		       const int& seed, LikelihoodMaximizer* lm_ptr,
+		       const int& seed, const double& xtol_rel, LikelihoodMaximizer* lm_ptr,
 		       int32_t* allele1, int32_t* allele2, int32_t* ret_result, double* minf_ret) {
+  if (xtol_rel <= 0.0) {
+    return false;
+  }
   // Seed reset! ~~
   nlopt::srand(seed);
   nlopt::opt opt(nlopt::LN_COBYLA, 2);
-  // opt.set_local_optimizer(nlopt::LN_COBYLA)   // TODO check nlopt::G_MLSL_LDS->multiple local
+  // Local optimizer disabled to preserve historical behavior.
   std::vector<double> lb(2);
   lb[0] = lower_bound;
   lb[1] = lower_bound;
@@ -811,9 +1116,10 @@ bool nlopt_2D_optimize(const int32_t& read_len, const int32_t& motif_len,
   nlopt_data data = nlopt_data(read_len, motif_len, ref_count, lm_ptr, 0, resampled);
   opt.set_min_objective(nloptNegLikelihood, &data);    // Change to max for maximization
 
-  opt.set_xtol_rel(.00005);   // TODO set something appropriate
+  opt.set_xtol_rel(xtol_rel);
   std::vector<double> xx(2);
   double minf=100000.0, f;
+  bool found = false;
   nlopt::result result;
   for (double j = 0.1; j <= 0.3; j+=0.1) {
     for (double k = 0.25; k <= 0.75; k+=0.25){
@@ -825,8 +1131,15 @@ bool nlopt_2D_optimize(const int32_t& read_len, const int32_t& motif_len,
       if (xx[0] < lower_bound) { xx[0] = lower_bound;}
       if (xx[1] < lower_bound) { xx[1] = lower_bound;}
 
-      result = opt.optimize(xx, f);
-
+      try {
+	result = opt.optimize(xx, f);
+      } catch (const std::exception&) {
+	continue;
+      }
+      if (result < 0) {
+	continue;
+      }
+      found = true;
       if (f < minf){
 	*allele1 = int32_t(round(xx[0]));
 	*allele2 = int32_t(round(xx[1]));
@@ -837,17 +1150,22 @@ bool nlopt_2D_optimize(const int32_t& read_len, const int32_t& motif_len,
     }
   }
   
-  
+  if (!found) {
+    return false;
+  }
   *minf_ret = minf;
-  return true;  // TODO add false
+  return true;
 }
 
 bool nlopt_1D_optimize(const int32_t& read_len, const int32_t& motif_len,
 		       const int32_t& ref_count, const int32_t& lower_bound,
 		       const int32_t& upper_bound, const bool& resampled, 
-		       const int& seed, LikelihoodMaximizer* lm_ptr,
+		       const int& seed, const double& xtol_rel, LikelihoodMaximizer* lm_ptr,
 		       const int32_t& fix_allele, int32_t* allele1,
 		       int32_t* ret_result, double* minf_ret) {
+  if (xtol_rel <= 0.0) {
+    return false;
+  }
   // Seed reset! ~~
   nlopt::srand(seed);
   nlopt::opt opt(nlopt::LN_COBYLA, 1);
@@ -863,16 +1181,24 @@ bool nlopt_1D_optimize(const int32_t& read_len, const int32_t& motif_len,
   nlopt_data data = nlopt_data(read_len, motif_len, ref_count, lm_ptr, fix_allele, resampled);
   opt.set_min_objective(nloptNegLikelihood, &data);    // Change to max for maximization
 
-  opt.set_xtol_rel(.0005);   // TODO set something appropriate
+  opt.set_xtol_rel(xtol_rel);
 
   std::vector<double> xx(1);
   xx[0] = int32_t(lower_bound + 0.5 * float(upper_bound - lower_bound));
   if (xx[0] > upper_bound) { xx[0] = upper_bound;}
   if (xx[0] < lower_bound) { xx[0] = lower_bound;}
   double minf;
-  nlopt::result result = opt.optimize(xx, minf);
+  nlopt::result result;
+  try {
+    result = opt.optimize(xx, minf);
+  } catch (const std::exception&) {
+    return false;
+  }
+  if (result < 0) {
+    return false;
+  }
   *allele1 = int32_t(round(xx[0]));
   *ret_result = result;
   *minf_ret = minf;
-  return true;  // TODO add false
+  return true;
 }

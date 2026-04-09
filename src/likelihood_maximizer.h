@@ -30,6 +30,7 @@ along with GangSTR.  If not, see <http://www.gnu.org/licenses/>.
 #include "src/read_pair.h"
 #include "src/locus.h"
 #include "src/sample_info.h"
+#include "src/hipstr_models/hip_stutter_model.h"
 #include "gsl/gsl_vector.h"
 #include "gsl/gsl_rng.h"
 #include "gsl/gsl_randist.h"
@@ -79,6 +80,28 @@ class LikelihoodMaximizer {
   // Get data dictionary string
   std::string GetEnclosingReadDictStr();
   std::string GetFlankingReadDictStr();
+  bool ShouldApplyStutterModelForCall(const int32_t& allele1,
+                                      const int32_t& allele2,
+                                      const int32_t& max_adjacent_diff,
+                                      const int32_t& min_adjacent_count);
+  bool ShouldApplyStutterModelForFlankingCall(const int32_t& allele1,
+                                              const int32_t& allele2,
+                                              const int32_t& max_adjacent_diff,
+                                              const int32_t& min_adjacent_count);
+  bool ShouldApplyStutterModelForLargeSideProbeCall(const int32_t& allele1,
+                                                    const int32_t& allele2,
+                                                    const int32_t& min_adjacent_count);
+  bool ShouldApplyStutterModelForUpperLargeSideProbeCall(const int32_t& allele1,
+                                                         const int32_t& allele2,
+                                                         const int32_t& min_adjacent_count);
+  bool ShouldApplyStutterModelForSpanningCall(const int32_t& allele1,
+                                              const int32_t& allele2);
+  bool ShouldApplyStutterModelForFRRCall(const int32_t& allele1,
+                                         const int32_t& allele2);
+  std::string GetStutterGateDebugSummary(const int32_t& allele1,
+                                         const int32_t& allele2,
+                                         const int32_t& max_adjacent_diff,
+                                         const int32_t& min_adjacent_count);
 
   // Main likelihood function
   bool GetGenotypeNegLogLikelihood(const int32_t& allele1, const int32_t& allele2,
@@ -122,6 +145,10 @@ class LikelihoodMaximizer {
 		      const int32_t& _read_len, const int32_t _motif_len,
 		      const int32_t& _ref_count, const std::string chrom);
 
+  void SetStutterModel(const HipStutterModel* model);
+  void SetStutterEnclosingWeightScale(const double scale);
+  void SetStutterFlankingWeightScale(const double scale);
+
   // Print read pool
   void PrintReadPool();
 
@@ -133,7 +160,10 @@ class LikelihoodMaximizer {
   const Options* options;
   const std::string sex; // {"M", "F", "U"}
  private:
-  double obj_cov; // TODO: This is a placeholder, until we figure out how to pass coverage through sample info
+  const HipStutterModel* stutter_model_;
+  double stutter_enclosing_weight_scale_;
+  double stutter_flanking_weight_scale_;
+  double obj_cov; // Coverage passed via SampleProfile; kept here for likelihood calculations.
   EnclosingClass enclosing_class_;
   FRRClass frr_class_;
   SpanningClass spanning_class_;
@@ -168,6 +198,15 @@ class LikelihoodMaximizer {
   int32_t local_ploidy; // ploidy of current likelihood maximizer 
   // If input ploidy is set, the value will represent that
   // If not, this value will be 2 unless on chrY of a male sample
+  bool GetLocalNeighborNegLikelihoodDelta(const int32_t& allele1,
+                                          const int32_t& allele2,
+                                          const int32_t& alt_allele1,
+                                          const int32_t& alt_allele2,
+                                          double* delta);
+  bool GetLargeSideNeighborDeltas(const int32_t& allele1,
+                                  const int32_t& allele2,
+                                  double* delta_down,
+                                  double* delta_up);
 };
 
 // Helper struct for NLOPT gradient optimizer
@@ -185,14 +224,14 @@ struct nlopt_data{
 bool nlopt_1D_optimize(const int32_t& read_len, const int32_t& motif_len,
 		       const int32_t& ref_count, const int32_t& lower_bound,
 		       const int32_t& upper_bound, const bool& resampled, 
-		       const int& seed, LikelihoodMaximizer* lm_ptr,
+		       const int& seed, const double& xtol_rel, LikelihoodMaximizer* lm_ptr,
 		       const int32_t& fix_allele, int32_t* allele1,
 		       int32_t* ret_result, double* minf_ret);
 // 2D gradient optimizer using NLOPT
 bool nlopt_2D_optimize(const int32_t& read_len, const int32_t& motif_len,
 		       const int32_t& ref_count, const int32_t& lower_bound,
 		       const int32_t& upper_bound, const bool& resampled, 
-		       const int& seed, LikelihoodMaximizer* lm_ptr,
+		       const int& seed, const double& xtol_rel, LikelihoodMaximizer* lm_ptr,
                int32_t* allele1, int32_t* allele2, int32_t* ret_result, double* minf_ret);
 // Helper function for NLOPT gradient optimizer
 double nloptNegLikelihood(unsigned n, const double *x, double *grad, void *data);

@@ -14,6 +14,7 @@ but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 
+
 You should have received a copy of the GNU General Public License
 along with GangSTR.  If not, see <http://www.gnu.org/licenses/>.
 */
@@ -22,6 +23,7 @@ along with GangSTR.  If not, see <http://www.gnu.org/licenses/>.
 #define SRC_FLANKING_CLASS_H__
 
 #include "src/read_class.h"
+#include "src/hipstr_models/hip_stutter_model.h"
 
 /*
   Type of ReadClass
@@ -36,12 +38,14 @@ class FlankingClass: public ReadClass {
 				   const int32_t& read_len,
 				   const int32_t& motif_len,
 				   const int32_t& ref_count,
+                   const HipStutterModel* stutter_model,
 				   double* allele_ll);
 
 	bool GetClassLogLikelihood(const int32_t& allele1,
 				      const int32_t& allele2,
 				      const int32_t& read_len, const int32_t& motif_len,
 				      const int32_t& ref_count, const int32_t& ploidy,
+                      const HipStutterModel* stutter_model,
 				      double* class_ll);
   bool GetGridBoundaries(int32_t* min_allele, int32_t* max_allele);
 };

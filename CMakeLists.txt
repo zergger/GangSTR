@@ -5,17 +5,16 @@ include(ExternalProject)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 #add_compile_options(-Werror)
 
-enable_testing()
-
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
 
 
 # set the project name
 project(GangSTR VERSION 2.5.0)
 configure_file(GangSTRConfig.h.in GangSTRConfig.h)
+include(CTest)
 
 # specify the C++ standard
-set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 ######################### htslib and dependencies ############################
@@ -102,6 +101,9 @@ target_link_libraries(GangSTR gsl)
 #target_link_libraries(GangSTR gstr pthread)
 #target_link_libraries (GangSTR ${CMAKE_THREAD_LIBS_INIT} gstr )
 install(TARGETS GangSTR DESTINATION bin)
+
+add_test(NAME gangstr_help_smoke COMMAND $<TARGET_FILE:GangSTR> --help)
+set_tests_properties(gangstr_help_smoke PROPERTIES WILL_FAIL TRUE)
 
 add_dependencies(htslib zlib)
 add_dependencies(gstr htslib pnlopt pgsl)

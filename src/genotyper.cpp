@@ -19,9 +19,12 @@ along with GangSTR.  If not, see <http://www.gnu.org/licenses/>.
 */
 
 #include <iostream>
+#include <sstream>
+#include <fstream>
 
 #include "src/genotyper.h"
 #include "src/mathops.h"
+#include "src/stringops.h"
 
 #include <set>
 using namespace std;
@@ -63,6 +66,24 @@ bool Genotyper::SetFlanks(Locus* locus) {
   return true;
 }
 
+std::string Genotyper::BuildLocusStutterKey(const std::string& chrom,
+                                            int32_t start,
+                                            int32_t end,
+                                            int32_t period,
+                                            const std::string& motif) const {
+  std::stringstream key;
+  key << chrom
+      << ":" << start
+      << ":" << end
+      << ":" << period
+      << ":" << lowercase(motif);
+  return key.str();
+}
+
+std::string Genotyper::GetLocusStutterKey(const Locus& locus) const {
+  return BuildLocusStutterKey(locus.chrom, locus.start, locus.end, locus.period, locus.motif);
+}
+
 bool Genotyper::SetGGL(Locus& locus, const std::string& samp) {
   std::map<std::pair<int32_t, int32_t>, double> gridlik;
   for (int32_t a1=locus.grid_min_allele; a1<=locus.grid_max_allele; a1++) {
@@ -79,9 +100,201 @@ bool Genotyper::SetGGL(Locus& locus, const std::string& samp) {
   return true;
 }
 
+bool Genotyper::LoadExternalStutterModels(const std::string& model_path) {
+  if (model_path.empty()) return true;
+
+  std::ifstream model_stream(model_path.c_str());
+  if (!model_stream.good()) {
+    PrintMessageDieOnError("Could not open external stutter model file: " + model_path, M_ERROR, false);
+    return false;
+  }
+
+  std::string line;
+  std::map<std::string, size_t> header_index;
+  bool saw_header = false;
+  int loaded_models = 0;
+
+  while (std::getline(model_stream, line)) {
+    if (line.empty()) continue;
+    if (!line.empty() && line[0] == '#') continue;
+
+    std::vector<std::string> fields;
+    split_by_delim(line, '\t', fields);
+    if (fields.empty()) continue;
+
+    if (!saw_header && lowercase(fields[0]) == "chrom") {
+      for (size_t i = 0; i < fields.size(); i++) {
+        header_index[lowercase(fields[i])] = i;
+      }
+      saw_header = true;
+      continue;
+    }
+
+    if (fields.size() < 11 && header_index.empty()) {
+      PrintMessageDieOnError("External stutter model row has fewer than 11 columns: " + line, M_ERROR, false);
+      return false;
+    }
+
+    bool row_error = false;
+    auto get_field = [&](const std::string& name, size_t fallback_index) -> std::string {
+      std::map<std::string, size_t>::const_iterator it = header_index.find(name);
+      size_t idx = fallback_index;
+      if (it != header_index.end()) idx = it->second;
+      if (idx >= fields.size()) {
+        row_error = true;
+        return "";
+      }
+      return fields[idx];
+    };
+
+    const std::string chrom = get_field("chrom", 0);
+    const int32_t start = atoi(get_field("start", 1).c_str());
+    const int32_t end = atoi(get_field("end", 2).c_str());
+    const int32_t period = atoi(get_field("period", 3).c_str());
+    const std::string motif = lowercase(get_field("motif", 4));
+    const double in_geom = atof(get_field("in_geom", 5).c_str());
+    const double in_up = atof(get_field("in_up", 6).c_str());
+    const double in_down = atof(get_field("in_down", 7).c_str());
+    const double out_geom = atof(get_field("out_geom", 8).c_str());
+    const double out_up = atof(get_field("out_up", 9).c_str());
+    const double out_down = atof(get_field("out_down", 10).c_str());
+    if (row_error) {
+      PrintMessageDieOnError("Malformed external stutter model row in " + model_path + ": " + line, M_ERROR, false);
+      return false;
+    }
+
+    std::string locus_id = BuildLocusStutterKey(chrom, start, end, period, motif);
+    std::map<std::string, HipStutterModel*>::iterator existing_model = locus_stutter_models.find(locus_id);
+    if (existing_model != locus_stutter_models.end()) {
+      delete existing_model->second;
+      existing_model->second = nullptr;
+    }
+    locus_stutter_models[locus_id] = new HipStutterModel(in_geom, in_up, in_down,
+                                                         out_geom, out_up, out_down,
+                                                         period);
+    loaded_models++;
+  }
+
+  if (options->verbose) {
+    std::stringstream ss;
+    ss << "Loaded " << loaded_models << " external stutter models from " << model_path;
+    PrintMessageDieOnError(ss.str(), M_PROGRESS, options->quiet);
+  }
+  return true;
+}
+
+bool Genotyper::LearnStutterModels(BamCramMultiReader* bamreader, std::vector<Locus*>& loci) {
+    if (options->verbose) {
+        PrintMessageDieOnError("Learning locus-specific stutter models...", M_PROGRESS, options->quiet);
+    }
+
+    for (auto const& locus : loci) {
+        const std::string locus_id = GetLocusStutterKey(*locus);
+        std::map<std::string, HipStutterModel*>::const_iterator existing_model = locus_stutter_models.find(locus_id);
+        if (existing_model != locus_stutter_models.end() && existing_model->second != nullptr) {
+            if (options->verbose) {
+                PrintMessageDieOnError("\tSkipping stutter model learning for locus " + locus_id + " (external model already loaded)", M_PROGRESS, options->quiet);
+            }
+            continue;
+        }
+
+        if (!SetFlanks(locus)) {
+            PrintMessageDieOnError("Failed to set flanking sequence for stutter learning at locus " + locus->chrom + ":" + std::to_string(locus->start), M_WARNING, options->quiet);
+            continue;
+        }
+
+        // We need a temporary map of likelihood maximizers just for extracting reads for this locus.
+        std::map<std::string, LikelihoodMaximizer*> temp_lms;
+        std::set<std::string> rg_samples = sample_info->GetSamples();
+        for (const auto& samp : rg_samples) {
+            SampleProfile sp;
+            if (sample_info->GetSampleProfile(samp, &sp)) {
+                temp_lms[samp] = new LikelihoodMaximizer(*options, sp, sample_info->GetReadLength(), sample_info->GetSampleSex(samp));
+            } else {
+                for (auto const& item : temp_lms) {
+                    delete item.second;
+                }
+                PrintMessageDieOnError("Could not find sample profile for " + samp, M_ERROR, false);
+                return false;
+            }
+        }
+
+        // Extract reads for the current locus
+        if (!read_extractor->ExtractReads(bamreader, *locus, options->regionsize, options->min_match, temp_lms)) {
+            PrintMessageDieOnError("Failed to extract reads for stutter learning at locus " + locus->chrom + ":" + std::to_string(locus->start), M_WARNING, options->quiet);
+            // Cleanup
+            for(auto const& [key, val] : temp_lms) { delete val; }
+            continue; // Skip to next locus
+        }
+
+        // Aggregate enclosing read alleles per sample for sample-aware EM training.
+        std::vector< std::vector<int> > per_sample_enclosing_alleles;
+        size_t total_enclosing_reads = 0;
+        for (const auto& samp : rg_samples) {
+            std::vector<int> sample_alleles;
+            temp_lms[samp]->enclosing_class_.ExtractAllEnclosingAlleles(&sample_alleles);
+            total_enclosing_reads += sample_alleles.size();
+            per_sample_enclosing_alleles.push_back(sample_alleles);
+        }
+
+        // Cleanup the temporary LMs
+        for(auto const& [key, val] : temp_lms) { delete val; }
+
+        // Check if we have enough data to learn a model
+        if (total_enclosing_reads < 20) { // Heuristic threshold
+            if (options->verbose) {
+                PrintMessageDieOnError("\tSkipping stutter model learning for locus " + locus->chrom + ":" + std::to_string(locus->start) + " (not enough enclosing reads)", M_PROGRESS, options->quiet);
+            }
+            continue;
+        }
+
+        // Learn the model
+        HipEMLearner em_learner(per_sample_enclosing_alleles, locus->motif.length());
+        bool success = em_learner.train(20, 0.01);
+
+        std::map<std::string, HipStutterModel*>::iterator stored_model = locus_stutter_models.find(locus_id);
+        if (stored_model != locus_stutter_models.end()) {
+            delete stored_model->second;
+            stored_model->second = nullptr;
+        }
+        if (success) {
+            HipStutterModel* learned_model = em_learner.get_stutter_model()->copy();
+            const double in_down = learned_model->get_parameter(true, 'D');
+            const double in_up = learned_model->get_parameter(true, 'U');
+            const bool suspicious_direction = in_up > in_down;
+
+            if (options->verbose) {
+                PrintMessageDieOnError("\tSuccessfully learned stutter model for locus " + locus_id, M_PROGRESS, options->quiet);
+                std::ostringstream model_ss;
+                model_ss << *learned_model;
+                PrintMessageDieOnError(model_ss.str(), M_PROGRESS, options->quiet);
+            }
+
+            if (suspicious_direction) {
+                if (options->verbose) {
+                    std::ostringstream warn_ss;
+                    warn_ss << "\tRejecting learned stutter model for locus " << locus_id
+                            << " because in-frame P_UP (" << in_up
+                            << ") exceeded P_DOWN (" << in_down
+                            << "); falling back to default GangSTR behavior";
+                    PrintMessageDieOnError(warn_ss.str(), M_PROGRESS, options->quiet);
+                }
+                delete learned_model;
+                locus_stutter_models[locus_id] = nullptr;
+            } else {
+                locus_stutter_models[locus_id] = learned_model;
+            }
+        } else {
+            PrintMessageDieOnError("\tFailed to learn stutter model for locus " + locus_id, M_WARNING, options->quiet);
+            locus_stutter_models[locus_id] = nullptr;
+        }
+    }
+
+    return true;
+}
+
 bool Genotyper::ProcessLocus(BamCramMultiReader* bamreader, Locus* locus) {
   int32_t read_len = sample_info->GetReadLength();
-
   // Load preflank and postflank to locus
   if (options->verbose) {
     PrintMessageDieOnError("\tSetting flanking regions", M_PROGRESS, options->quiet);
@@ -116,6 +329,12 @@ bool Genotyper::ProcessLocus(BamCramMultiReader* bamreader, Locus* locus) {
     return false;
   }
 
+  // Get the learned stutter model for this locus
+  std::string locus_id = GetLocusStutterKey(*locus);
+  const HipStutterModel* stutter_model = nullptr;
+  if (locus_stutter_models.count(locus_id)) {
+      stutter_model = locus_stutter_models.at(locus_id);
+  }
 
   std::set<std::string> rg_samples = sample_info->GetSamples();
   // First set grid size
@@ -126,6 +345,9 @@ bool Genotyper::ProcessLocus(BamCramMultiReader* bamreader, Locus* locus) {
   for (std::set<std::string>::iterator it = rg_samples.begin();
        it != rg_samples.end(); it++) {
     const std::string samp = *it;
+    // Default to original GangSTR behavior for the provisional per-sample call.
+    sample_likelihood_maximizers[samp]->SetStutterModel(nullptr);
+
     if (gcbin != -1) {
       sample_likelihood_maximizers[samp]->SetLocusParams(str_info->GetSTRInfo(locus->chrom, locus->start),
 							 sample_info->GetGCCoverage(samp, gcbin),
@@ -165,15 +387,125 @@ bool Genotyper::ProcessLocus(BamCramMultiReader* bamreader, Locus* locus) {
     const std::string samp = *it;
     locus->called[samp] = false;
     sample_likelihood_maximizers[samp]->SetGridSize(min_allele, max_allele);
+    sample_likelihood_maximizers[samp]->SetStutterEnclosingWeightScale(1.0);
+    sample_likelihood_maximizers[samp]->SetStutterFlankingWeightScale(1.0);
     try {
+      sample_likelihood_maximizers[samp]->SetStutterModel(nullptr);
+      int32_t base_allele1 = 0, base_allele2 = 0;
+      double base_min_negLike = 0.0;
       if (!sample_likelihood_maximizers[samp]->OptimizeLikelihood(resampled, options->ploidy,
 								  0,
 								  locus->offtarget_share,
-								  &allele1, 
-								  &allele2, 
-								  &min_negLike)) {
+								  &base_allele1,
+								  &base_allele2,
+								  &base_min_negLike)) {
 	continue;
       }
+      allele1 = base_allele1;
+      allele2 = base_allele2;
+      min_negLike = base_min_negLike;
+
+      bool apply_sample_stutter = false;
+      bool use_large_probe_boost = false;
+      bool use_upper_large_probe_boost = false;
+      bool use_spanning_surface_boost = false;
+      bool use_frr_surface_boost = false;
+      if (options->verbose && stutter_model != nullptr) {
+        stringstream gate_msg;
+        gate_msg << "\tStutter Gate [" << samp << "]: "
+                 << sample_likelihood_maximizers[samp]->GetStutterGateDebugSummary(
+                        base_allele1,
+                        base_allele2,
+                        options->stutter_gate_max_adjacent_diff,
+                        options->stutter_gate_min_adjacent_count);
+        PrintMessageDieOnError(gate_msg.str(), M_PROGRESS, options->quiet);
+      }
+      if (stutter_model != nullptr) {
+        use_upper_large_probe_boost =
+            sample_likelihood_maximizers[samp]->ShouldApplyStutterModelForUpperLargeSideProbeCall(
+                base_allele1,
+                base_allele2,
+                options->stutter_gate_min_adjacent_count);
+        use_large_probe_boost =
+            sample_likelihood_maximizers[samp]->ShouldApplyStutterModelForLargeSideProbeCall(
+                base_allele1,
+                base_allele2,
+                options->stutter_gate_min_adjacent_count);
+        use_spanning_surface_boost =
+            sample_likelihood_maximizers[samp]->ShouldApplyStutterModelForSpanningCall(
+                base_allele1,
+                base_allele2);
+        use_frr_surface_boost =
+            sample_likelihood_maximizers[samp]->ShouldApplyStutterModelForFRRCall(
+                base_allele1,
+                base_allele2);
+      }
+      if (stutter_model != nullptr &&
+          sample_likelihood_maximizers[samp]->ShouldApplyStutterModelForCall(
+              base_allele1,
+              base_allele2,
+              options->stutter_gate_max_adjacent_diff,
+              options->stutter_gate_min_adjacent_count)) {
+        if (options->verbose) {
+          stringstream apply_msg;
+          apply_msg << "\tApplying learned stutter model for sample " << samp;
+          if (use_upper_large_probe_boost) {
+            apply_msg << " with upper-large flanking boost";
+          } else if (use_large_probe_boost) {
+            apply_msg << " with large-probe flanking boost";
+          }
+          if (use_spanning_surface_boost) {
+            apply_msg << " with spanning-surface rerank";
+          }
+          if (use_frr_surface_boost) {
+            apply_msg << " with FRR-surface rerank";
+          }
+          PrintMessageDieOnError(apply_msg.str(), M_PROGRESS, options->quiet);
+        }
+        int32_t model_allele1 = 0, model_allele2 = 0;
+        double model_min_negLike = 0.0;
+        double enclosing_scale = 1.0;
+        double flanking_scale = 1.0;
+        if (use_large_probe_boost) {
+          flanking_scale = std::max(flanking_scale, 1.10);
+        }
+        if (use_upper_large_probe_boost) {
+          flanking_scale = std::max(flanking_scale, 1.25);
+          enclosing_scale = std::max(enclosing_scale, 1.05);
+        }
+        if (use_spanning_surface_boost) {
+          enclosing_scale = std::max(enclosing_scale, 1.08);
+          flanking_scale = std::max(flanking_scale, 1.15);
+        }
+        if (use_frr_surface_boost) {
+          enclosing_scale = std::max(enclosing_scale, 1.10);
+          flanking_scale = std::max(flanking_scale, 1.20);
+        }
+        sample_likelihood_maximizers[samp]->SetStutterEnclosingWeightScale(enclosing_scale);
+        sample_likelihood_maximizers[samp]->SetStutterFlankingWeightScale(flanking_scale);
+        sample_likelihood_maximizers[samp]->SetStutterModel(stutter_model);
+        if (sample_likelihood_maximizers[samp]->OptimizeLikelihood(resampled, options->ploidy,
+								   0,
+								   locus->offtarget_share,
+								   &model_allele1,
+								   &model_allele2,
+								   &model_min_negLike)) {
+          allele1 = model_allele1;
+          allele2 = model_allele2;
+          min_negLike = model_min_negLike;
+          apply_sample_stutter = true;
+        } else {
+          sample_likelihood_maximizers[samp]->SetStutterEnclosingWeightScale(1.0);
+          sample_likelihood_maximizers[samp]->SetStutterFlankingWeightScale(1.0);
+          sample_likelihood_maximizers[samp]->SetStutterModel(nullptr);
+        }
+      }
+      if (!apply_sample_stutter) {
+        sample_likelihood_maximizers[samp]->SetStutterEnclosingWeightScale(1.0);
+        sample_likelihood_maximizers[samp]->SetStutterFlankingWeightScale(1.0);
+        sample_likelihood_maximizers[samp]->SetStutterModel(nullptr);
+      }
+
       std::vector<double> sample_prob_vec;
       if (!sample_likelihood_maximizers[samp]->GetExpansionProb(&sample_prob_vec, locus->expansion_threshold)) {
 	sample_prob_vec.clear();
@@ -290,6 +622,10 @@ Genotyper::~Genotyper() {
   delete read_extractor;
   for (std::map<std::string, LikelihoodMaximizer*>::iterator it = sample_likelihood_maximizers.begin();
        it != sample_likelihood_maximizers.end(); it++) {
+    delete it->second;
+  }
+  for (std::map<std::string, HipStutterModel*>::iterator it = locus_stutter_models.begin();
+       it != locus_stutter_models.end(); it++) {
     delete it->second;
   }
 }

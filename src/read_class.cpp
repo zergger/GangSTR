@@ -198,7 +198,19 @@ std::string ReadClass::GetReadDictStr() {
        out+= "|";
      out = out + std::to_string(it->first) + "," + std::to_string(it->second);
      it++;
-   }
+  }
   return out;
+}
+
+int32_t ReadClass::GetDataCount(const int32_t& data_value) {
+  int32_t count = 0;
+  for (std::vector<int32_t>::const_iterator it = read_class_data_.begin();
+       it != read_class_data_.end();
+       ++it) {
+    if (*it == data_value) {
+      count++;
+    }
+  }
+  return count;
 }
 ReadClass::~ReadClass() {}

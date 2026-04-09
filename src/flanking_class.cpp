@@ -30,12 +30,39 @@ along with GangSTR.  If not, see <http://www.gnu.org/licenses/>.
 #include <gsl/gsl_cdf.h>
 using namespace std;
 
+namespace {
+
+bool GetFlankingBoundTailLogLikelihood(const HipStutterModel* stutter_model,
+                                       const int32_t& allele,
+                                       const int32_t& lower_bound_copy,
+                                       const int32_t& max_observed_copy,
+                                       const int32_t& motif_len,
+                                       double* log_tail_prob) {
+  std::vector<double> log_probs;
+  const int32_t min_observed_copy = std::max<int32_t>(lower_bound_copy + 1, 1);
+  for (int32_t observed_copy = min_observed_copy;
+       observed_copy <= max_observed_copy;
+       ++observed_copy) {
+    log_probs.push_back(
+        stutter_model->log_stutter_pmf(allele * motif_len, observed_copy * motif_len));
+  }
+  if (log_probs.empty()) {
+    *log_tail_prob = ReadClass::NEG_INF;
+    return true;
+  }
+  *log_tail_prob = log_sum_exp(log_probs);
+  return true;
+}
+
+}  // namespace
+
 
 bool FlankingClass::GetAlleleLogLikelihood(const int32_t& allele,
 				   const int32_t& data,
 				   const int32_t& read_len,
 				   const int32_t& motif_len,
 				   const int32_t& ref_count,
+                   const HipStutterModel* stutter_model,
 				   double* allele_ll){
 	double likelihood = 0.0;
 	int32_t max_nCopy = int32_t(read_len / motif_len);
@@ -74,28 +101,47 @@ bool FlankingClass::GetAlleleLogLikelihood(const int32_t& allele,
 	if (likelihood <= 0.0){
 		*allele_ll = NEG_INF;
 	}
-	else
-		*allele_ll = log(likelihood);
+	else {
+        double log_likelihood = log(likelihood);
+        if (stutter_model != nullptr) {
+          double log_tail_prob = NEG_INF;
+          if (!GetFlankingBoundTailLogLikelihood(stutter_model,
+                                                 allele,
+                                                 data,
+                                                 max_nCopy,
+                                                 motif_len,
+                                                 &log_tail_prob)) {
+            return false;
+          }
+          if (log_tail_prob <= NEG_INF) {
+            *allele_ll = NEG_INF;
+            return true;
+          }
+          log_likelihood += log_tail_prob;
+        }
+		*allele_ll = log_likelihood;
+    }
 	return true;
 }
-
 
 bool FlankingClass::GetClassLogLikelihood(const int32_t& allele1,
 				      const int32_t& allele2,
 				      const int32_t& read_len, const int32_t& motif_len,
 				      const int32_t& ref_count, const int32_t& ploidy,
+                      const HipStutterModel* stutter_model,
 				      double* class_ll) {
   *class_ll = 0;
   double samp_log_likelihood, a1_ll, a2_ll;
   for (std::vector<int32_t>::iterator data_it = read_class_data_.begin();
        data_it != read_class_data_.end();
        data_it++) {
-    if (!FlankingClass::GetAlleleLogLikelihood(allele1, *data_it, read_len, motif_len, ref_count, &a1_ll)) {
+    if (!GetAlleleLogLikelihood(allele1, *data_it, read_len, motif_len, ref_count, stutter_model, &a1_ll)) {
       return false;
     }
-    if (!FlankingClass::GetAlleleLogLikelihood(allele2, *data_it, read_len, motif_len, ref_count, &a2_ll)) {
+    if (!GetAlleleLogLikelihood(allele2, *data_it, read_len, motif_len, ref_count, stutter_model, &a2_ll)) {
       return false;
     }
+
     if (ploidy == 2){
       *class_ll += fast_log_sum_exp(log(allele1_weight_)+a1_ll, log(allele2_weight_)+a2_ll);
   	}
@@ -115,4 +161,3 @@ bool FlankingClass::GetGridBoundaries(int32_t* min_allele, int32_t* max_allele) 
   }
   return true;
 }
-

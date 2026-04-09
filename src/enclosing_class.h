@@ -22,6 +22,7 @@ along with GangSTR.  If not, see <http://www.gnu.org/licenses/>.
 #define SRC_ENCLOSING_CLASS_H__
 
 #include "src/read_class.h"
+#include "src/hipstr_models/hip_stutter_model.h"
 
 /*
   Type of ReadClass
@@ -34,13 +35,27 @@ class EnclosingClass: public ReadClass {
   bool GetLogClassProb(const int32_t& allele,
 		       const int32_t& read_len, const int32_t& motif_len,
 		       double* log_class_prob);
+  bool GetClassLogLikelihood(const int32_t& allele1, const int32_t& allele2,
+			     const int32_t& read_len, const int32_t& motif_len,
+			     const int32_t& ref_count, const int32_t& ploidy,
+			     const HipStutterModel* stutter_model,
+			     double* class_ll);
   bool GetLogReadProb(const int32_t& allele, const int32_t& data,
-		      const int32_t& read_len, const int32_t& motif_len,
-		      const int32_t& ref_count,
+		      const int32_t& motif_len,
+		      const HipStutterModel* stutter_model,
 		      double* log_allele_prob);
   bool GetGridBoundaries(int32_t* min_allele, int32_t* max_allele);
-  // Function to extract all enclosing alleles present
+  // Extract repeated enclosing alleles for GangSTR grid inference.
   bool ExtractEnclosingAlleles(std::vector<int> *alleles);
+  // Extract all enclosing alleles without applying the repeated-read filter.
+  bool ExtractAllEnclosingAlleles(std::vector<int> *alleles) const;
+  int32_t GetAlleleCount(const int32_t& allele) const;
+private:
+    bool GetLogReadProb(const int32_t& allele, const int32_t& data,
+		      const int32_t& read_len,
+		      const int32_t& motif_len,
+		      const int32_t& ref_count,
+		      double* log_allele_prob) override;
 };
 
 #endif  // SRC_ENCLOSING_CLASS_H__

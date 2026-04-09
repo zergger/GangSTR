@@ -441,6 +441,7 @@ bool classify_realigned_read(const std::string& seq,
 			     const int32_t& end_pos,
 			     const int32_t& nCopy,
 			     const int32_t& score,
+			     const double& match_perc_threshold,
 			     const int32_t& prefix_length,
 			     const int32_t& min_match,
 			     const bool& isMapped,
@@ -490,7 +491,7 @@ bool classify_realigned_read(const std::string& seq,
   */
 
   // Set threshold for match
-  int32_t score_threshold = (int32_t)(MATCH_PERC_THRESHOLD*seq.size()*SSW_MATCH_SCORE);
+  int32_t score_threshold = (int32_t)(match_perc_threshold*seq.size()*SSW_MATCH_SCORE);
 
   if (isMapped && (score < score_threshold || nCopy == 0)) {
     *single_read_class = SR_UNKNOWN;
