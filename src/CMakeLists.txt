@@ -64,6 +64,14 @@ if(BUILD_TESTING)
   target_include_directories(gangstr_integration_smoke PRIVATE "${PROJECT_BINARY_DIR}")
   add_test(NAME gangstr_integration_smoke COMMAND gangstr_integration_smoke)
 
+  add_test(
+      NAME gangstr_external_model_validation_smoke
+      COMMAND /bin/bash
+              ${CMAKE_CURRENT_SOURCE_DIR}/tests/gangstr_external_model_validation_smoke.sh
+              $<TARGET_FILE:GangSTR>
+              ${PROJECT_SOURCE_DIR}
+  )
+
   add_executable(hip_em_learner_unit
       tests/hip_em_learner_unit.cpp
   )

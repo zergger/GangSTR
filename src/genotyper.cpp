@@ -18,9 +18,14 @@ You should have received a copy of the GNU General Public License
 along with GangSTR.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+#include <cerrno>
+#include <climits>
+#include <cmath>
+#include <cctype>
+#include <cstdlib>
+#include <fstream>
 #include <iostream>
 #include <sstream>
-#include <fstream>
 
 #include "src/genotyper.h"
 #include "src/mathops.h"
@@ -28,6 +33,119 @@ along with GangSTR.  If not, see <http://www.gnu.org/licenses/>.
 
 #include <set>
 using namespace std;
+
+namespace {
+
+std::string TrimAscii(const std::string& value) {
+  size_t begin = 0;
+  while (begin < value.size() &&
+         std::isspace(static_cast<unsigned char>(value[begin]))) {
+    begin++;
+  }
+  size_t end = value.size();
+  while (end > begin &&
+         std::isspace(static_cast<unsigned char>(value[end - 1]))) {
+    end--;
+  }
+  return value.substr(begin, end - begin);
+}
+
+bool ParseStrictInt32(const std::string& raw_value,
+                      const std::string& field_name,
+                      int32_t* parsed_value,
+                      std::string* error_message) {
+  const std::string value = TrimAscii(raw_value);
+  if (value.empty()) {
+    *error_message = field_name + " is empty";
+    return false;
+  }
+  char* parse_end = NULL;
+  errno = 0;
+  const long parsed = std::strtol(value.c_str(), &parse_end, 10);
+  if (parse_end == value.c_str() || *parse_end != '\0' ||
+      errno == ERANGE || parsed < INT_MIN || parsed > INT_MAX) {
+    *error_message = field_name + " is not a valid integer: " + raw_value;
+    return false;
+  }
+  *parsed_value = static_cast<int32_t>(parsed);
+  return true;
+}
+
+bool ParseStrictDouble(const std::string& raw_value,
+                       const std::string& field_name,
+                       double* parsed_value,
+                       std::string* error_message) {
+  const std::string value = TrimAscii(raw_value);
+  if (value.empty()) {
+    *error_message = field_name + " is empty";
+    return false;
+  }
+  char* parse_end = NULL;
+  errno = 0;
+  const double parsed = std::strtod(value.c_str(), &parse_end);
+  if (parse_end == value.c_str() || *parse_end != '\0' ||
+      errno == ERANGE || !std::isfinite(parsed)) {
+    *error_message = field_name + " is not a valid finite number: " + raw_value;
+    return false;
+  }
+  *parsed_value = parsed;
+  return true;
+}
+
+bool ValidateExternalStutterModel(const std::string& chrom,
+                                  int32_t start,
+                                  int32_t end,
+                                  int32_t period,
+                                  const std::string& motif,
+                                  double in_geom,
+                                  double in_up,
+                                  double in_down,
+                                  double out_geom,
+                                  double out_up,
+                                  double out_down,
+                                  std::string* error_message) {
+  if (TrimAscii(chrom).empty()) {
+    *error_message = "chrom cannot be empty";
+    return false;
+  }
+  if (start < 0 || end < start) {
+    *error_message = "start/end are invalid";
+    return false;
+  }
+  if (period < 1 || period > 9) {
+    *error_message = "period must be in [1, 9]";
+    return false;
+  }
+  if (motif.empty()) {
+    *error_message = "motif cannot be empty";
+    return false;
+  }
+  if (static_cast<int32_t>(motif.size()) != period) {
+    *error_message = "motif length must equal period";
+    return false;
+  }
+  if (!(in_geom > 0.0 && in_geom < 1.0) ||
+      !(out_geom > 0.0 && out_geom < 1.0)) {
+    *error_message = "in_geom and out_geom must be in (0, 1)";
+    return false;
+  }
+  if (!(in_up > 0.0 && in_down > 0.0 &&
+        out_up > 0.0 && out_down > 0.0)) {
+    *error_message = "stutter direction probabilities must be > 0";
+    return false;
+  }
+  if (in_up + in_down + out_up + out_down >= 1.0) {
+    *error_message = "stutter direction probabilities must sum to < 1";
+    return false;
+  }
+  if (in_up > in_down) {
+    *error_message = "in-frame P_UP must not exceed P_DOWN";
+    return false;
+  }
+  return true;
+}
+
+}  // namespace
 
 Genotyper::Genotyper(RefGenome& _refgenome,
 		     Options& _options,
@@ -113,8 +231,14 @@ bool Genotyper::LoadExternalStutterModels(const std::string& model_path) {
   std::map<std::string, size_t> header_index;
   bool saw_header = false;
   int loaded_models = 0;
+  int line_number = 0;
+  const std::vector<std::string> required_columns = {
+    "chrom", "start", "end", "period", "motif",
+    "in_geom", "in_up", "in_down", "out_geom", "out_up", "out_down"
+  };
 
   while (std::getline(model_stream, line)) {
+    line_number++;
     if (line.empty()) continue;
     if (!line.empty() && line[0] == '#') continue;
 
@@ -122,9 +246,15 @@ bool Genotyper::LoadExternalStutterModels(const std::string& model_path) {
     split_by_delim(line, '\t', fields);
     if (fields.empty()) continue;
 
-    if (!saw_header && lowercase(fields[0]) == "chrom") {
+    if (!saw_header && lowercase(TrimAscii(fields[0])) == "chrom") {
       for (size_t i = 0; i < fields.size(); i++) {
-        header_index[lowercase(fields[i])] = i;
+        header_index[lowercase(TrimAscii(fields[i]))] = i;
+      }
+      for (size_t i = 0; i < required_columns.size(); i++) {
+        if (header_index.count(required_columns[i]) == 0) {
+          PrintMessageDieOnError("External stutter model header is missing required column: " + required_columns[i], M_ERROR, false);
+          return false;
+        }
       }
       saw_header = true;
       continue;
@@ -144,28 +274,55 @@ bool Genotyper::LoadExternalStutterModels(const std::string& model_path) {
         row_error = true;
         return "";
       }
-      return fields[idx];
+      return TrimAscii(fields[idx]);
     };
 
     const std::string chrom = get_field("chrom", 0);
-    const int32_t start = atoi(get_field("start", 1).c_str());
-    const int32_t end = atoi(get_field("end", 2).c_str());
-    const int32_t period = atoi(get_field("period", 3).c_str());
+    int32_t start = 0;
+    int32_t end = 0;
+    int32_t period = 0;
+    double in_geom = 0.0;
+    double in_up = 0.0;
+    double in_down = 0.0;
+    double out_geom = 0.0;
+    double out_up = 0.0;
+    double out_down = 0.0;
     const std::string motif = lowercase(get_field("motif", 4));
-    const double in_geom = atof(get_field("in_geom", 5).c_str());
-    const double in_up = atof(get_field("in_up", 6).c_str());
-    const double in_down = atof(get_field("in_down", 7).c_str());
-    const double out_geom = atof(get_field("out_geom", 8).c_str());
-    const double out_up = atof(get_field("out_up", 9).c_str());
-    const double out_down = atof(get_field("out_down", 10).c_str());
     if (row_error) {
       PrintMessageDieOnError("Malformed external stutter model row in " + model_path + ": " + line, M_ERROR, false);
+      return false;
+    }
+    std::string parse_error;
+    if (!ParseStrictInt32(get_field("start", 1), "start", &start, &parse_error) ||
+        !ParseStrictInt32(get_field("end", 2), "end", &end, &parse_error) ||
+        !ParseStrictInt32(get_field("period", 3), "period", &period, &parse_error) ||
+        !ParseStrictDouble(get_field("in_geom", 5), "in_geom", &in_geom, &parse_error) ||
+        !ParseStrictDouble(get_field("in_up", 6), "in_up", &in_up, &parse_error) ||
+        !ParseStrictDouble(get_field("in_down", 7), "in_down", &in_down, &parse_error) ||
+        !ParseStrictDouble(get_field("out_geom", 8), "out_geom", &out_geom, &parse_error) ||
+        !ParseStrictDouble(get_field("out_up", 9), "out_up", &out_up, &parse_error) ||
+        !ParseStrictDouble(get_field("out_down", 10), "out_down", &out_down, &parse_error)) {
+      std::stringstream err;
+      err << "Invalid external stutter model row in " << model_path
+          << " at line " << line_number << ": " << parse_error;
+      PrintMessageDieOnError(err.str(), M_ERROR, false);
+      return false;
+    }
+    if (!ValidateExternalStutterModel(chrom, start, end, period, motif,
+                                      in_geom, in_up, in_down,
+                                      out_geom, out_up, out_down,
+                                      &parse_error)) {
+      std::stringstream err;
+      err << "Invalid external stutter model parameters in " << model_path
+          << " at line " << line_number << ": " << parse_error;
+      PrintMessageDieOnError(err.str(), M_ERROR, false);
       return false;
     }
 
     std::string locus_id = BuildLocusStutterKey(chrom, start, end, period, motif);
     std::map<std::string, HipStutterModel*>::iterator existing_model = locus_stutter_models.find(locus_id);
     if (existing_model != locus_stutter_models.end()) {
+      PrintMessageDieOnError("Duplicate external stutter model for locus " + locus_id + "; keeping the last row", M_WARNING, options->quiet);
       delete existing_model->second;
       existing_model->second = nullptr;
     }
@@ -334,6 +491,9 @@ bool Genotyper::ProcessLocus(BamCramMultiReader* bamreader, Locus* locus) {
   const HipStutterModel* stutter_model = nullptr;
   if (locus_stutter_models.count(locus_id)) {
       stutter_model = locus_stutter_models.at(locus_id);
+  }
+  if (options->verbose && options->stutter_mode == "external" && stutter_model == nullptr) {
+      PrintMessageDieOnError("\tNo external stutter model matched " + locus_id + "; falling back to default GangSTR stutter behavior", M_WARNING, options->quiet);
   }
 
   std::set<std::string> rg_samples = sample_info->GetSamples();
